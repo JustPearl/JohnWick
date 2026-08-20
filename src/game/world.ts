@@ -121,19 +121,137 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   sea.position.y = 0;
   world.add(sea);
 
+  /* ---------------- procedural grime textures ---------------- */
+  const canvasTex = (size: number, draw: (g: CanvasRenderingContext2D, s: number) => void, rx = 1, ry = 1) => {
+    const c = document.createElement("canvas");
+    c.width = c.height = size;
+    const g = c.getContext("2d")!;
+    draw(g, size);
+    const t = new THREE.CanvasTexture(c);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    return t;
+  };
+  const speckle = (g: CanvasRenderingContext2D, s: number, n: number, a: number, light: boolean) => {
+    for (let i = 0; i < n; i++) {
+      const v = light ? 255 : 0;
+      g.fillStyle = `rgba(${v},${v},${v},${(Math.random() * a).toFixed(3)})`;
+      g.fillRect(Math.random() * s, Math.random() * s, 1 + Math.random() * 1.6, 1 + Math.random() * 1.6);
+    }
+  };
+  const rustBlobs = (g: CanvasRenderingContext2D, s: number, n: number) => {
+    for (let i = 0; i < n; i++) {
+      const x = Math.random() * s, y = Math.random() * s, r = 8 + Math.random() * 34;
+      const rg = g.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, "rgba(120,52,18,0.5)");
+      rg.addColorStop(0.6, "rgba(156,74,28,0.22)");
+      rg.addColorStop(1, "rgba(156,74,28,0)");
+      g.fillStyle = rg;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  };
+  const deckTex = canvasTex(512, (g, s) => {
+    g.fillStyle = "#232c31";
+    g.fillRect(0, 0, s, s);
+    const cell = s / 4;
+    for (let i = 0; i < 4; i++)
+      for (let j = 0; j < 4; j++) {
+        const l = 32 + Math.random() * 9;
+        g.fillStyle = `rgb(${l},${l + 6},${l + 9})`;
+        g.fillRect(i * cell + 3, j * cell + 3, cell - 6, cell - 6);
+        g.strokeStyle = "rgba(8,11,13,0.95)";
+        g.lineWidth = 4;
+        g.strokeRect(i * cell + 2, j * cell + 2, cell - 4, cell - 4);
+        for (const [rx2, ry2] of [[12, 12], [cell - 12, 12], [12, cell - 12], [cell - 12, cell - 12]] as const) {
+          g.fillStyle = "#0c1013";
+          g.beginPath();
+          g.arc(i * cell + rx2, j * cell + ry2, 3.4, 0, 7);
+          g.fill();
+          g.fillStyle = "rgba(190,210,220,0.16)";
+          g.beginPath();
+          g.arc(i * cell + rx2 - 1, j * cell + ry2 - 1, 1.3, 0, 7);
+          g.fill();
+        }
+      }
+    speckle(g, s, 2400, 0.1, true);
+    speckle(g, s, 3200, 0.16, false);
+    rustBlobs(g, s, 12);
+    for (let i = 0; i < 6; i++) {
+      const x = Math.random() * s, y = Math.random() * s, r = 14 + Math.random() * 34;
+      const rg = g.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, "rgba(6,8,10,0.5)");
+      rg.addColorStop(1, "rgba(6,8,10,0)");
+      g.fillStyle = rg;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  }, 6, 4.2);
+  const hazardTex = canvasTex(64, (g, s) => {
+    g.fillStyle = "#141619";
+    g.fillRect(0, 0, s, s);
+    g.save();
+    g.translate(s / 2, s / 2);
+    g.rotate(Math.PI / 4);
+    g.fillStyle = "#dfa62e";
+    for (let i = -3; i <= 3; i++) g.fillRect(i * 32 - 8, -s, 16, s * 2);
+    g.restore();
+    speckle(g, s, 300, 0.25, false);
+  }, 8, 1);
+  const steelTex = canvasTex(256, (g, s) => {
+    g.fillStyle = "#d5cebc";
+    g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 26; i++) {
+      const x = Math.random() * s, w = 4 + Math.random() * 14;
+      const lg = g.createLinearGradient(0, 0, 0, s);
+      lg.addColorStop(0, "rgba(58,48,38,0)");
+      lg.addColorStop(1, `rgba(48,38,30,${(0.14 + Math.random() * 0.24).toFixed(2)})`);
+      g.fillStyle = lg;
+      g.fillRect(x, 0, w, s);
+    }
+    rustBlobs(g, s, 18);
+    speckle(g, s, 1800, 0.12, false);
+    speckle(g, s, 700, 0.08, true);
+  });
+  const rustTex = canvasTex(256, (g, s) => {
+    g.fillStyle = "#9c4a1c";
+    g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 22; i++) {
+      const x = Math.random() * s, w = 5 + Math.random() * 18;
+      const lg = g.createLinearGradient(0, 0, 0, s);
+      lg.addColorStop(0, "rgba(40,16,6,0)");
+      lg.addColorStop(1, `rgba(36,14,5,${(0.18 + Math.random() * 0.3).toFixed(2)})`);
+      g.fillStyle = lg;
+      g.fillRect(x, 0, w, s);
+    }
+    rustBlobs(g, s, 10);
+    speckle(g, s, 2200, 0.16, false);
+    speckle(g, s, 600, 0.1, true);
+    g.fillStyle = "rgba(226,150,80,0.14)";
+    for (let i = 0; i < 30; i++) g.fillRect(Math.random() * s, Math.random() * s, 3 + Math.random() * 8, 2 + Math.random() * 5);
+  });
+  const glowTex = canvasTex(128, (g, s) => {
+    const rg = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    rg.addColorStop(0, "rgba(255,255,255,1)");
+    rg.addColorStop(0.3, "rgba(255,255,255,0.42)");
+    rg.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = rg;
+    g.fillRect(0, 0, s, s);
+  });
+
   /* ---------------- lights ---------------- */
-  const hemi = new THREE.HemisphereLight(0x35606a, 0x1a120c, 1.05);
+  const hemi = new THREE.HemisphereLight(0xb06a3e, 0x0d1418, 0.95);
   world.add(hemi);
-  const sun = new THREE.DirectionalLight(0xff9550, 1.35);
-  sun.position.set(-70, 30, -88);
+  const sun = new THREE.DirectionalLight(0xff8a48, 1.7);
+  sun.position.set(-70, 26, -88);
   world.add(sun);
-  const rim = new THREE.DirectionalLight(0x2fe6b0, 0.22);
+  const rim = new THREE.DirectionalLight(0x2fa08a, 0.4);
   rim.position.set(60, 40, 70);
   world.add(rim);
 
   /* ---------------- main deck ---------------- */
-  const deckTop = toon(0x2b4c57);
-  const deckSide = toon(0x1b333c);
+  const deckTop = new THREE.MeshToonMaterial({ map: deckTex });
+  const deckSide = toon(0x14262d);
   const mkBox = (
     w: number,
     h: number,
@@ -157,14 +275,19 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   mkBox(48, 1.4, 34, deckTop, 0, DECK_Y - 0.7, 0);
   // deck understructure
   mkBox(46, 1.6, 32, deckSide, 0, DECK_Y - 2.1, 0);
-  // amber edge trims
-  const trim = toon(0xffb03a, 0xffb03a, 0.35);
-  mkBox(48.3, 0.18, 0.5, trim, 0, DECK_Y - 0.05, -17.1);
-  mkBox(48.3, 0.18, 0.5, trim, 0, DECK_Y - 0.05, 17.1);
-  mkBox(0.5, 0.18, 34.3, trim, -24.1, DECK_Y - 0.05, 0);
+  // hazard-striped edge trims
+  const hazardMat = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
+  hazardMat.map!.repeat.set(14, 1);
+  mkBox(48.3, 0.18, 0.55, hazardMat, 0, DECK_Y - 0.05, -17.1);
+  const hazardMat2 = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
+  hazardMat2.map!.repeat.set(14, 1);
+  mkBox(48.3, 0.18, 0.55, hazardMat2, 0, DECK_Y - 0.05, 17.1);
+  const hazardMat3 = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
+  hazardMat3.map!.repeat.set(10, 1);
+  mkBox(0.55, 0.18, 34.3, hazardMat3, -24.1, DECK_Y - 0.05, 0);
 
-  // grating insets + lane paint
-  const grate = toon(0x14262d);
+  // grating insets + faded lane paint
+  const grate = toon(0x0f1e24);
   for (const [gx, gz, gw, gd] of [
     [-6, -2, 10, 6],
     [8, 4, 8, 8],
@@ -173,13 +296,15 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   ] as const) {
     mkBox(gw, 0.06, gd, grate, gx, DECK_Y + 0.03, gz);
   }
-  const paint = toon(0xffd23f, 0xffd23f, 0.25);
+  const paint = toon(0xd8b23c, 0xd8b23c, 0.1);
   mkBox(40, 0.05, 0.3, paint, 0, DECK_Y + 0.05, -4);
   mkBox(0.3, 0.05, 20, paint, 12, DECK_Y + 0.05, 2);
   mkBox(26, 0.05, 0.3, paint, -8, DECK_Y + 0.05, 13);
 
   /* ---------------- helipad ---------------- */
-  const pad = toon(0x1d3138);
+  const padTex = deckTex.clone();
+  padTex.repeat.set(2.5, 2.5);
+  const pad = new THREE.MeshToonMaterial({ map: padTex, color: 0x7e939c });
   mkBox(20, 1.0, 20, pad, 34, DECK_Y - 0.5, 0);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(5.6, 6.4, 36),
@@ -241,8 +366,8 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const derX = -15;
   const derZ = -7;
   const derH = 22;
-  const boneSteel = toon(0xd9d2bf);
-  const rustPatch = toon(0x9c4a1c);
+  const boneSteel = new THREE.MeshToonMaterial({ map: steelTex });
+  const rustPatch = new THREE.MeshToonMaterial({ map: rustTex });
   const derGroup = new THREE.Group();
   derGroup.position.set(derX, DECK_Y, derZ);
   world.add(derGroup);
@@ -531,6 +656,137 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     });
   };
 
+  /* ---------------- deck clutter ---------------- */
+  const barrelCols = [0x8c3a24, 0x4f5a33, 0x2f4250, 0x77713f];
+  const ribMat = toon(0x17181a);
+  const barrelAt: [number, number, number, boolean][] = [
+    [-21.5, -12.8, 0, false],
+    [-20.4, -13.9, 1, false],
+    [-21.9, -14.4, 2, true],
+    [20.5, 13.4, 1, false],
+    [21.7, 14.3, 3, false],
+    [19.4, 14.7, 0, true],
+    [22, -13, 2, false],
+    [-6.5, 14.2, 3, false],
+  ];
+  for (const [bx, bz, ci, tipped] of barrelAt) {
+    const grp = new THREE.Group();
+    grp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.15, 10), toon(barrelCols[ci])));
+    const r1 = new THREE.Mesh(new THREE.CylinderGeometry(0.585, 0.585, 0.07, 10), ribMat);
+    r1.position.y = 0.3;
+    const r2 = r1.clone();
+    r2.position.y = -0.3;
+    grp.add(r1, r2);
+    if (tipped) {
+      grp.rotation.z = Math.PI / 2;
+      grp.rotation.y = Math.random() * Math.PI;
+      grp.position.set(bx, DECK_Y + 0.56, bz);
+    } else {
+      grp.position.set(bx, DECK_Y + 0.58, bz);
+    }
+    world.add(grp);
+    colliders.push({ x1: bx - 0.62, z1: bz - 0.62, x2: bx + 0.62, z2: bz + 0.62 });
+  }
+  for (const [rx3, rz] of [[-20.8, 9.2], [8.5, -13]] as const) {
+    const reel = new THREE.Group();
+    const discGeo = new THREE.CylinderGeometry(1.15, 1.15, 0.14, 14);
+    const d1 = new THREE.Mesh(discGeo, toon(0x5a4630));
+    const d2 = new THREE.Mesh(discGeo, toon(0x5a4630));
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 0.72, 12), toon(0x23262a));
+    d1.rotation.z = Math.PI / 2;
+    d2.rotation.z = Math.PI / 2;
+    drum.rotation.z = Math.PI / 2;
+    d1.position.x = -0.44;
+    d2.position.x = 0.44;
+    reel.add(d1, d2, drum);
+    reel.position.set(rx3, DECK_Y + 1.16, rz);
+    reel.rotation.y = Math.random() * Math.PI;
+    world.add(reel);
+    colliders.push({ x1: rx3 - 1.25, z1: rz - 1.25, x2: rx3 + 1.25, z2: rz + 1.25 });
+  }
+  const woodA = toon(0x6d5836);
+  const woodB = toon(0x4c4a30);
+  const crateMat = toon(0x5f6b3a);
+  const palletAt: [number, number][] = [[-2, -13.2], [16.5, 14], [-20.5, 3.5]];
+  palletAt.forEach(([px, pz], i) => {
+    mkBox(2.4, 0.16, 2.4, woodA, px, DECK_Y + 0.08, pz);
+    mkBox(1.6, 1.0, 1.6, i % 2 ? crateMat : woodB, px, DECK_Y + 0.66, pz, true);
+    if (i === 0) mkBox(1.0, 0.8, 1.0, crateMat, px + 0.2, DECK_Y + 1.56, pz - 0.15, true);
+    if (i === 2) mkBox(1.1, 0.7, 1.1, woodB, px - 0.15, DECK_Y + 1.51, pz + 0.2, true);
+  });
+  // steam vent
+  const vent = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.5, 1.5, 8), toon(0x4a555a));
+  vent.position.set(22.5, DECK_Y + 0.75, -14.2);
+  world.add(vent);
+  colliders.push({ x1: 22, z1: -14.7, x2: 23, z2: -13.7 });
+  const puffs: { sp: THREE.Sprite; t: number; v: number }[] = [];
+  for (let i = 0; i < 8; i++) {
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x8d9aa0, transparent: true, opacity: 0, depthWrite: false }));
+    world.add(sp);
+    puffs.push({ sp, t: i / 8, v: 0.1 + Math.random() * 0.05 });
+  }
+  // stuttering tripod work light
+  const tripod = new THREE.Group();
+  for (const ang of [0, 2.1, 4.2]) {
+    const legT = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.6, 5), toon(0x22262a));
+    legT.position.set(Math.cos(ang) * 0.5, 1.15, Math.sin(ang) * 0.5);
+    legT.rotation.z = Math.cos(ang) * 0.22;
+    legT.rotation.x = -Math.sin(ang) * 0.22;
+    tripod.add(legT);
+  }
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.5, 0.3), toon(0x2c3238));
+  head.position.y = 2.4;
+  const bulbPlane = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 0.34), new THREE.MeshBasicMaterial({ color: 0xffd9a0 }));
+  bulbPlane.position.set(0, 2.4, 0.17);
+  tripod.add(head, bulbPlane);
+  tripod.position.set(6, DECK_Y, -13);
+  tripod.rotation.y = 2.6;
+  world.add(tripod);
+  colliders.push({ x1: 5.4, z1: -13.6, x2: 6.6, z2: -12.4 });
+  const workLight = new THREE.PointLight(0xffc078, 22, 16, 1.8);
+  workLight.position.set(6, DECK_Y + 2.4, -12.6);
+  world.add(workLight);
+  const workGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffb877, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending }));
+  workGlow.position.copy(workLight.position);
+  workGlow.scale.setScalar(2.4);
+  world.add(workGlow);
+  // flare glow sprites
+  const flareGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff8a3c, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
+  flareGlow.position.copy(flareTip);
+  flareGlow.scale.setScalar(16);
+  world.add(flareGlow);
+  const flareCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffe2b0, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+  flareCore.position.copy(flareTip).add(new THREE.Vector3(0, 0.9, 0));
+  flareCore.scale.setScalar(6);
+  world.add(flareCore);
+  // oil slick on the water
+  const slick = new THREE.Mesh(new THREE.CircleGeometry(8, 24), new THREE.MeshBasicMaterial({ color: 0x04070a, transparent: true, opacity: 0.35 }));
+  slick.rotation.x = -Math.PI / 2;
+  slick.position.set(30, 0.3, 18);
+  world.add(slick);
+  const sheen = new THREE.Mesh(new THREE.CircleGeometry(3.2, 20), new THREE.MeshBasicMaterial({ color: 0xff8a3c, transparent: true, opacity: 0.09, blending: THREE.AdditiveBlending, depthWrite: false }));
+  sheen.rotation.x = -Math.PI / 2;
+  sheen.position.set(31.5, 0.35, 17);
+  world.add(sheen);
+
+  const baseUpdate = update;
+  const fullUpdate = (t: number, dt: number) => {
+    baseUpdate(t, dt);
+    for (const p of puffs) {
+      p.t = (p.t + dt * p.v) % 1;
+      p.sp.position.set(22.5 + p.t * 2.4, DECK_Y + 1.6 + p.t * 6.5, -14.2 + Math.sin(p.t * 5) * 0.5);
+      p.sp.scale.setScalar(0.7 + p.t * 3.4);
+      (p.sp.material as THREE.SpriteMaterial).opacity = Math.sin(p.t * Math.PI) * 0.15;
+    }
+    const fl2 = 0.85 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29.7) * 0.05;
+    flareGlow.scale.setScalar(16 * fl2);
+    (flareGlow.material as THREE.SpriteMaterial).opacity = 0.55 + fl2 * 0.3;
+    const wk = Math.sin(t * 31) > -0.94 ? 1 : 0.2;
+    workLight.intensity = 22 * (0.9 + Math.sin(t * 3.7) * 0.1) * wk;
+    (workGlow.material as THREE.SpriteMaterial).opacity = 0.5 * wk;
+    bulbPlane.visible = wk > 0.5;
+  };
+
   return {
     group: world,
     colliders,
@@ -539,6 +795,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     playerStart: new THREE.Vector3(2, DECK_Y, 5),
     flareTip,
     boundaryRects,
-    update,
+    update: fullUpdate,
   };
 }

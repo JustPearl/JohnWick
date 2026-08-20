@@ -259,19 +259,46 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   corner(-1, 1);
   corner(1, -1);
   corner(-1, -1);
-  for (let i = 0; i < 5; i++) {
-    const y = 1.5 + i * (derH / 5);
-    const s = 2.4 * (1 - (y / derH) * 0.45);
+  // substructure box the derrick stands on
+  const sub = new THREE.Mesh(new THREE.BoxGeometry(7, 1.2, 7), rustPatch);
+  sub.position.y = 0.6;
+  derGroup.add(sub);
+  // lattice: rings + diagonals follow the legs' true lean (halfW 3.5 at deck -> 1.3 at crown)
+  const halfW = (y: number) => 3.5 - 0.1 * y;
+  const panels = 5;
+  const panelH = derH / panels;
+  for (let i = 0; i <= panels; i++) {
+    const y = i * panelH;
+    const s = halfW(y);
     for (const axis of [0, 1]) {
       for (const side of [-1, 1]) {
-        const len = s * 2.35;
+        const len = s * 2;
         const brace = new THREE.Mesh(new THREE.BoxGeometry(axis ? 0.16 : len, 0.16, axis ? len : 0.16), i % 2 ? rustPatch : boneSteel);
         brace.position.set(axis ? side * s : 0, y, axis ? 0 : side * s);
         derGroup.add(brace);
-        const diag = new THREE.Mesh(new THREE.BoxGeometry(axis ? 0.12 : len * 1.18, 0.12, axis ? len * 1.18 : 0.12), boneSteel);
-        diag.position.set(axis ? side * s : 0, y + derH / 10, axis ? 0 : side * s);
-        diag.rotation.y = axis ? 0 : Math.PI / 4 * side;
-        if (axis) diag.rotation.x = Math.PI / 4 * side;
+      }
+    }
+  }
+  const upV = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < panels; i++) {
+    const y0 = i * panelH;
+    const y1 = y0 + panelH;
+    const s0 = halfW(y0);
+    const dirSign = i % 2 === 0 ? 1 : -1;
+    for (const axis of [0, 1]) {
+      for (const side of [-1, 1]) {
+        const a =
+          axis === 0
+            ? new THREE.Vector3(-dirSign * s0, y0, side * s0)
+            : new THREE.Vector3(side * s0, y0, -dirSign * s0);
+        const b =
+          axis === 0
+            ? new THREE.Vector3(dirSign * s0, y1, side * s0)
+            : new THREE.Vector3(side * s0, y1, dirSign * s0);
+        const dir = b.clone().sub(a);
+        const diag = new THREE.Mesh(new THREE.BoxGeometry(0.12, dir.length(), 0.12), i % 2 ? boneSteel : rustPatch);
+        diag.quaternion.setFromUnitVectors(upV, dir.clone().normalize());
+        diag.position.copy(a).addScaledVector(dir, 0.5);
         derGroup.add(diag);
       }
     }
@@ -285,7 +312,7 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const hook = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.4), toon(0xffb03a));
   hook.position.y = derH - 10.4;
   derGroup.add(hook);
-  colliders.push({ x1: derX - 3.3, z1: derZ - 3.3, x2: derX + 3.3, z2: derZ + 3.3 });
+  colliders.push({ x1: derX - 3.6, z1: derZ - 3.6, x2: derX + 3.6, z2: derZ + 3.6 });
   solids.push(derGroup);
 
   // rotating radar on derrick crown

@@ -607,7 +607,13 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   mkWall(48, 0.35, 0, -16.85);
   mkWall(48, 0.35, 0, 16.85);
   mkWall(0.35, 34, -23.85, 0);
-  mkWall(0.35, 34, 23.85, 0);
+  // east wall split to leave the helipad walkway open (z -9.2 .. 9.2)
+  mkWall(0.35, 7.8, 23.85, -13.1);
+  mkWall(0.35, 7.8, 23.85, 13.1);
+  // hazard posts marking the doorway
+  for (const gz of [-9.2, 9.2]) {
+    mkBox(0.36, 1.25, 0.36, wallTop, 23.85, DECK_Y + 0.62, gz, true);
+  }
   // helipad walls (outer edges only, leaving gap to deck)
   mkWall(20, 0.35, 34, -9.85);
   mkWall(20, 0.35, 34, 9.85);

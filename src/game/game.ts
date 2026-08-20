@@ -232,6 +232,7 @@ export class Game {
   private keys = new Set<string>();
   private mouseSens = 0.00225;
   private lastLockRequest = -99;
+  private menuIn = 0;
 
   private ray = new THREE.Raycaster();
   private hudT = 0;
@@ -1180,6 +1181,21 @@ export class Game {
     }
   }
 
+  menuTick() {
+    this.sfx.init();
+    this.sfx.tick();
+  }
+
+  menuLineDone() {
+    this.sfx.init();
+    this.sfx.lineDone();
+  }
+
+  menuSlam() {
+    this.sfx.init();
+    this.sfx.slam();
+  }
+
   private reset() {
     for (const e of [...this.enemies]) this.removeEnemy(e);
     this.enemies = [];
@@ -1259,6 +1275,7 @@ export class Game {
 
   toMenu() {
     this.screen = "menu";
+    this.menuIn = this.time;
     document.exitPointerLock();
     this.reset();
     const feed = this.o.fx.querySelector("#feed");
@@ -1327,7 +1344,12 @@ export class Game {
 
     if (this.screen === "menu") {
       const t = this.time * 0.09;
-      this.camera.position.set(Math.cos(t) * 52 - 4, 22 + Math.sin(this.time * 0.13) * 3.5, Math.sin(t) * 52);
+      // cinematic dolly-in: crane up from deck level into the orbit
+      const mt = Math.min(1, (this.time - this.menuIn) / 4.8);
+      const ease = 1 - Math.pow(1 - mt, 3);
+      const rad = 110 - 58 * ease;
+      const h = 8.5 + 13.5 * ease + Math.sin(this.time * 0.13) * 3.5 * ease;
+      this.camera.position.set(Math.cos(t) * rad - 4, h, Math.sin(t) * rad);
       this.camera.lookAt(-4, 11, 0);
       this.ambientFx(dt);
       this.stepFx(dt, dt);

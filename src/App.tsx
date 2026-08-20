@@ -82,6 +82,132 @@ function SkullIcon({ className }: { className?: string }) {
   );
 }
 
+const BOOT_LINES = [
+  { pre: "UPLINK TO PLATFORM K-9", status: "ONLINE", cls: "text-tide" },
+  { pre: "PERIMETER SENSOR GRID", status: "BREACHED", cls: "text-blood" },
+  { pre: "CREW MANIFEST", status: "0 SURVIVORS", cls: "text-blood" },
+  { pre: "WEAPON CACHE", status: "UNLOCKED", cls: "text-amber" },
+  { pre: "CONTRACT VALUE", status: "$1,400,000", cls: "text-hazard" },
+];
+const BOOT_CUM = BOOT_LINES.map((_, i) => BOOT_LINES.slice(0, i).reduce((a, l) => a + l.pre.length, 0));
+const BOOT_TOTAL = BOOT_LINES.reduce((a, l) => a + l.pre.length, 0);
+
+function BootOverlay({
+  onDone,
+  onTick,
+  onLine,
+  onSlam,
+}: {
+  onDone: () => void;
+  onTick: () => void;
+  onLine: () => void;
+  onSlam: () => void;
+}) {
+  const typedRef = useRef(0);
+  const coolRef = useRef(12);
+  const [, force] = useState(0);
+  const [exiting, setExiting] = useState(false);
+  const typed = typedRef.current;
+  const isDone = typed >= BOOT_TOTAL;
+
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (typedRef.current >= BOOT_TOTAL) return;
+      if (coolRef.current > 0) {
+        coolRef.current--;
+        force((x) => x + 1);
+        return;
+      }
+      const prev = typedRef.current;
+      typedRef.current = Math.min(BOOT_TOTAL, prev + (Math.random() < 0.35 ? 2 : 1));
+      let hitLine = false;
+      for (let i = 0; i < BOOT_LINES.length; i++) {
+        const end = BOOT_CUM[i] + BOOT_LINES[i].pre.length;
+        if (prev < end && typedRef.current >= end) {
+          coolRef.current = 9;
+          hitLine = true;
+          onLine();
+          break;
+        }
+      }
+      if (!hitLine && typedRef.current % 3 === 0) onTick();
+      force((x) => x + 1);
+    }, 24);
+    return () => clearInterval(iv);
+  }, [onLine, onTick]);
+
+  useEffect(() => {
+    if (!isDone) return;
+    const t = setTimeout(() => {
+      onSlam();
+      setExiting(true);
+    }, 720);
+    return () => clearTimeout(t);
+  }, [isDone, onSlam]);
+
+  const skip = () => {
+    if (typedRef.current < BOOT_TOTAL) {
+      typedRef.current = BOOT_TOTAL;
+      force((x) => x + 1);
+    }
+  };
+
+  return (
+    <div
+      className={`absolute inset-0 z-[95] cursor-pointer select-none overflow-hidden bg-[rgba(2,8,11,0.8)] backdrop-blur-[2px] font-mono ${exiting ? "boot-exit" : ""}`}
+      onClick={skip}
+      onAnimationEnd={exiting ? onDone : undefined}
+    >
+      <div className="boot-scan" />
+      <div className="scanlines absolute inset-0 opacity-70" />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{ background: "radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.75) 100%)" }}
+      />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="w-[640px] max-w-[92vw]">
+          <div className="mb-6 flex items-center justify-between border-b border-line/40 pb-2.5">
+            <span className="text-[11px] font-bold tracking-[0.3em] text-dim">K-9 PLATFORM OS · NIGHT BUILD 4.7.1</span>
+            <span className="clip-tag border border-ember/50 bg-ink px-2 py-0.5 text-[10px] font-bold tracking-[0.25em] text-ember">
+              SECURE CHANNEL
+            </span>
+          </div>
+          <div className="space-y-3 text-sm md:text-base">
+            {BOOT_LINES.map((l, i) => {
+              const shown = Math.max(0, Math.min(l.pre.length, typed - BOOT_CUM[i]));
+              const lineDone = typed >= BOOT_CUM[i] + l.pre.length;
+              const active = !lineDone && typed >= BOOT_CUM[i];
+              return (
+                <div key={l.pre} className="flex items-baseline gap-2.5">
+                  <span className="text-amber/70">▸</span>
+                  <span className="whitespace-pre tracking-wider text-bone/85">
+                    {l.pre.slice(0, shown)}
+                    {active && <span className="boot-caret text-amber" />}
+                  </span>
+                  {lineDone && (
+                    <span className="ml-auto flex items-baseline gap-2.5">
+                      <span className="tracking-widest text-dim/50">·····</span>
+                      <span className={`stat-pop font-bold tracking-[0.2em] ${l.cls}`}>{l.status}</span>
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {isDone && (
+            <div className="stat-pop mt-8 flex items-center gap-3.5">
+              <div className="h-[3px] w-12 bg-blood" />
+              <span className="font-display text-2xl tracking-[0.18em] text-blood md:text-3xl">THREAT LEVEL · EXTREME</span>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="absolute bottom-5 left-6 text-[11px] font-bold tracking-[0.3em] text-dim/40">03:47 AM · NORTH SEA</div>
+      <div className="absolute bottom-5 right-6 text-[11px] font-bold tracking-[0.3em] text-dim/60">CLICK TO SKIP ▸▸</div>
+    </div>
+  );
+}
+
 export default function App() {
   const mountRef = useRef<HTMLDivElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -91,6 +217,7 @@ export default function App() {
   const gameRef = useRef<Game | null>(null);
   const [ui, setUi] = useState<UiState>({ screen: "menu", stats: null });
   const [hud, setHud] = useState<HudData>(DEFAULT_HUD);
+  const [bootDone, setBootDone] = useState(false);
 
   useEffect(() => {
     if (!mountRef.current || !wrapRef.current || !overlayRef.current || !fxRef.current || !vigRef.current) return;
@@ -258,12 +385,22 @@ export default function App() {
         </div>
       )}
 
+      {/* ============ BOOT SEQUENCE ============ */}
+      {!bootDone && (
+        <BootOverlay
+          onDone={() => setBootDone(true)}
+          onTick={() => gameRef.current?.menuTick()}
+          onLine={() => gameRef.current?.menuLineDone()}
+          onSlam={() => gameRef.current?.menuSlam()}
+        />
+      )}
+
       {/* ============ MENU ============ */}
-      {ui.screen === "menu" && (
+      {ui.screen === "menu" && bootDone && (
         <div className="absolute inset-0 scanlines">
           <div className="absolute inset-0" style={{ background: "linear-gradient(20deg, rgba(4,16,21,0.92) 8%, rgba(4,16,21,0.45) 45%, rgba(4,16,21,0.75) 100%)" }} />
           {/* top strip */}
-          <div className="absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-3">
+          <div className="strip-in-d absolute top-0 left-0 right-0 flex items-center justify-between px-6 py-3">
             <div className="flex items-center gap-3">
               <div className="hazard-stripes clip-tag px-3 py-1 text-[11px] font-bold tracking-[0.25em] text-ink">RESTRICTED DECK</div>
               <span className="font-hud text-xs font-semibold tracking-[0.3em] text-dim">NORTH SEA · PLATFORM 09 · 03:47 AM</span>
@@ -273,11 +410,20 @@ export default function App() {
 
           {/* title block */}
           <div className="absolute left-6 md:left-12 bottom-[19%]">
-            <div className="title-flicker">
-              <div className="font-display text-[17vw] md:text-[9.5rem] leading-[0.82] text-bone" style={{ textShadow: "0 0 60px rgba(255,106,42,0.35), 0 6px 0 rgba(0,0,0,0.65)" }}>
-                BLACK<span className="text-ember">GOLD</span>
+            <div className="title-flicker relative">
+              <div className="slam-flash" />
+              <div className="chroma-flicker">
+                <div className="overflow-hidden">
+                  <div className="title-slam font-display text-[17vw] md:text-[9.5rem] leading-[0.82] text-bone" style={{ textShadow: "0 0 60px rgba(255,106,42,0.35), 0 6px 0 rgba(0,0,0,0.65)" }}>
+                    BLACK<span className="text-ember">GOLD</span>
+                  </div>
+                </div>
+                <div className="overflow-hidden">
+                  <div className="title-slam title-slam-2 font-display text-[9vw] md:text-[5rem] leading-[0.9] text-stroke-bone tracking-wide">
+                    VENDETTA
+                  </div>
+                </div>
               </div>
-              <div className="font-display text-[9vw] md:text-[5rem] leading-[0.9] text-stroke-bone tracking-wide">VENDETTA</div>
             </div>
             <div className="mt-4 flex items-center gap-4 rise-in rise-in-2">
               <div className="h-[3px] w-16 bg-amber" />
@@ -306,8 +452,8 @@ export default function App() {
           </div>
 
           {/* right column: dossier + controls */}
-          <div className="absolute right-6 md:right-10 top-16 bottom-8 hidden lg:flex w-[340px] flex-col gap-3 overflow-hidden">
-            <div className="hud-panel clip-panel p-4 rise-in rise-in-1">
+          <div className="absolute right-6 md:right-10 top-16 bottom-8 hidden lg:flex w-[340px] flex-col gap-3">
+            <div className="hud-panel clip-panel p-4 panel-in-r panel-d1">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-display text-lg text-amber">WEAPON DOSSIER</span>
                 <span className="clip-tag bg-ink px-2 py-0.5 text-[10px] font-bold tracking-[0.25em] text-dim">KEYS 1-3</span>
@@ -328,7 +474,7 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <div className="hud-panel clip-panel p-4 rise-in rise-in-2">
+            <div className="hud-panel clip-panel p-4 panel-in-r panel-d2">
               <div className="mb-2 font-display text-lg text-amber">FIELD MANUAL</div>
               <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5">
                 {CONTROLS.map(([k, v]) => (
@@ -341,7 +487,7 @@ export default function App() {
                 ))}
               </div>
             </div>
-            <div className="hud-panel clip-panel p-3 rise-in rise-in-3 text-[12px] font-semibold tracking-wider text-dim">
+            <div className="hud-panel clip-panel p-3 panel-in-r panel-d3 text-[12px] font-semibold tracking-wider text-dim">
               <span className="text-tide">TIP ▸</span> Hold <span className="text-bone">RMB</span> to enter FOCUS — the world slows, your trigger doesn't. Kills recharge it.
             </div>
           </div>
@@ -358,15 +504,17 @@ export default function App() {
             </div>
           </div>
 
-          {/* rotated stamp */}
-          <div className="absolute left-[52%] top-[14%] hidden md:block rotate-[-9deg] drift-slow">
+          {/* rotated stamp — slams down like a rubber stamp */}
+          <div className="stamp-in absolute left-[52%] top-[14%] hidden md:block">
             <div className="border-4 border-blood/70 px-4 py-1.5 font-display text-3xl text-blood/80 tracking-widest" style={{ maskImage: "linear-gradient(115deg, black 78%, transparent 92%)" }}>
               NO EXTRACTION
             </div>
           </div>
 
-          <div className="absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold tracking-[0.3em] text-dim/70 blink-hard">
-            MOUSE + KEYBOARD REQUIRED · HEADPHONES RECOMMENDED
+          <div className="fade-late absolute bottom-2 left-0 right-0 text-center">
+            <span className="blink-hard text-[11px] font-semibold tracking-[0.3em] text-dim/70">
+              MOUSE + KEYBOARD REQUIRED · HEADPHONES RECOMMENDED
+            </span>
           </div>
         </div>
       )}

@@ -133,6 +133,20 @@ export class SFX {
     this.noise(0.25, 0.2, "lowpass", 1200, 160, 0.04);
   }
 
+  tick() {
+    this.tone("square", 1650, 1250, 0.02, 0.045);
+  }
+
+  lineDone() {
+    this.tone("square", 520, 780, 0.06, 0.07);
+  }
+
+  slam() {
+    this.tone("sawtooth", 130, 26, 0.55, 0.4);
+    this.noise(0.4, 0.3, "lowpass", 1600, 90, 0.01);
+    this.tone("square", 900, 2400, 0.12, 0.08, 0.02, "lin");
+  }
+
   thump() {
     this.tone("sine", 110, 36, 0.14, 0.5);
     this.noise(0.08, 0.22, "lowpass", 480, 110, 0.01);

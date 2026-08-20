@@ -247,10 +247,12 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   derGroup.position.set(derX, DECK_Y, derZ);
   world.add(derGroup);
   const corner = (cx: number, cz: number) => {
+    // legs lean inward so the tower is wide-based and tapers to the crown
+    const lean = 0.1;
     const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.5, derH, 6), boneSteel);
     leg.position.set(cx * 2.4, derH / 2, cz * 2.4);
-    leg.rotation.z = cx * -0.1;
-    leg.rotation.x = cz * 0.1;
+    leg.rotation.z = cx * lean;
+    leg.rotation.x = cz * -lean;
     derGroup.add(leg);
   };
   corner(1, 1);
@@ -283,7 +285,7 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const hook = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.4), toon(0xffb03a));
   hook.position.y = derH - 10.4;
   derGroup.add(hook);
-  colliders.push({ x1: derX - 2.9, z1: derZ - 2.9, x2: derX + 2.9, z2: derZ + 2.9 });
+  colliders.push({ x1: derX - 3.3, z1: derZ - 3.3, x2: derX + 3.3, z2: derZ + 3.3 });
   solids.push(derGroup);
 
   // rotating radar on derrick crown

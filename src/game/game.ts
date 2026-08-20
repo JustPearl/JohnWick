@@ -1852,6 +1852,11 @@ function resolveColliders(pos: THREE.Vector3, r: number, colliders: AABB[]) {
 };
 
 function clampToBounds(pos: THREE.Vector3, r: number, rects: AABB[]) {
+  // inside the union of the raw boxes -> free movement (rects sit inset from the visual walls)
+  for (const b of rects) {
+    if (pos.x >= b.x1 && pos.x <= b.x2 && pos.z >= b.z1 && pos.z <= b.z2) return;
+  }
+  // outside everything -> pull toward the nearest rect (inset by the body radius)
   let best: { x: number; z: number; d: number } | null = null;
   for (const b of rects) {
     const cx = Math.max(b.x1 + r, Math.min(pos.x, b.x2 - r));
@@ -1861,7 +1866,7 @@ function clampToBounds(pos: THREE.Vector3, r: number, rects: AABB[]) {
     const d = dx * dx + dz * dz;
     if (!best || d < best.d) best = { x: cx, z: cz, d };
   }
-  if (best && best.d > 0.000001) {
+  if (best) {
     pos.x = best.x;
     pos.z = best.z;
   }

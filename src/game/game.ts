@@ -64,9 +64,9 @@ interface WeaponDef {
   reloadTime: number;
 }
 const WEAPONS: WeaponDef[] = [
-  { name: "WIDOW-9", kind: "pistol", dmg: 34, pellets: 1, magSize: 12, reserveMax: 84, rpm: 340, spread: 0.012, kick: 1.0, reloadTime: 1.05 },
-  { name: "HORNET SMG", kind: "smg", dmg: 15, pellets: 1, magSize: 30, reserveMax: 180, rpm: 760, spread: 0.021, kick: 0.5, reloadTime: 1.5 },
-  { name: "MAUL-12", kind: "shotgun", dmg: 16, pellets: 7, magSize: 6, reserveMax: 42, rpm: 88, spread: 0.05, kick: 2.4, reloadTime: 2.0 },
+  { name: "WIDOW-9", kind: "pistol", dmg: 34, pellets: 1, magSize: 12, reserveMax: 84, rpm: 340, spread: 0.006, kick: 1.0, reloadTime: 1.05 },
+  { name: "HORNET SMG", kind: "smg", dmg: 15, pellets: 1, magSize: 30, reserveMax: 180, rpm: 760, spread: 0.011, kick: 0.5, reloadTime: 1.5 },
+  { name: "MAUL-12", kind: "shotgun", dmg: 16, pellets: 7, magSize: 6, reserveMax: 42, rpm: 88, spread: 0.028, kick: 2.4, reloadTime: 2.0 },
 ];
 
 /* ---------------- enemy ---------------- */
@@ -567,6 +567,14 @@ export class Game {
     };
     e.hp *= 1 + this.wave * 0.07;
     e.maxHp = e.hp;
+    // generous invisible body hitbox (raycaster tests invisible meshes)
+    const hitbox = new THREE.Mesh(
+      new THREE.CylinderGeometry(heavy ? 0.85 : 0.62, heavy ? 0.85 : 0.62, heavy ? 2.05 : 1.9, 8),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    hitbox.position.y = heavy ? 1.02 : 0.95;
+    hitbox.name = "body";
+    g.add(hitbox);
     g.traverse((c) => {
       c.userData.eid = e.id;
     });
@@ -765,7 +773,7 @@ export class Game {
     this.vmRecoil = Math.min(0.16, this.vmRecoil + 0.09 + w.def.kick * 0.03);
     this.pitchKick += 0.008 + w.def.kick * 0.006;
     this.rollKick = (Math.random() - 0.5) * 0.02 * w.def.kick;
-    this.bloom = Math.min(0.09, this.bloom + w.def.spread * 1.6 + w.def.kick * 0.004);
+    this.bloom = Math.min(0.05, this.bloom + w.def.spread * 0.8 + w.def.kick * 0.0025);
     this.shake = Math.min(1, this.shake + 0.1 + w.def.kick * 0.08);
     this.muzzleT = 0.05;
     this.muzzleLight.intensity = 26;
@@ -1421,7 +1429,7 @@ export class Game {
 
     /* ---- weapons ---- */
     this.fireCd -= dt;
-    this.bloom *= 1 - Math.min(1, dt * 6);
+    this.bloom *= 1 - Math.min(1, dt * 9);
     this.vmRecoil *= 1 - Math.min(1, dt * 11);
     this.vmLift += (0 - this.vmLift) * Math.min(1, dt * 10);
     this.muzzleT -= dt;
@@ -1648,7 +1656,7 @@ export class Game {
     const cy = H / 2;
     c.save();
     c.scale(1, 1);
-    const gap = (9 + this.bloom * 900) * dpr;
+    const gap = (8 + this.bloom * 1200) * dpr;
     const len = 11 * dpr;
     c.lineWidth = 2 * dpr;
     c.strokeStyle = this.focusActive ? "rgba(47,230,176,0.95)" : "rgba(239,230,212,0.92)";

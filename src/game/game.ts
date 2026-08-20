@@ -97,6 +97,7 @@ interface Enemy {
   fallDir: number;
   windPhase: number;
   burstLeft: number;
+  slide?: THREE.Vector3;
 }
 
 interface Particle {
@@ -186,6 +187,10 @@ export class Game {
   private reloading = 0;
   private reloadTotal = 1;
   private bloom = 0;
+  private hitstop = 0;
+  private fovPunch = 0;
+  private rings: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; t: number; active: boolean }[] = [];
+  private decals: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; active: boolean }[] = [];
   private vmLift = 0;
   private vmRecoil = 0;
   private muzzleT = 0;
@@ -450,6 +455,30 @@ export class Game {
       this.scene.add(m);
       this.pickups.push({ mesh: m, kind: "ammo", life: 0, active: false });
     }
+    const ringGeo = new THREE.TorusGeometry(0.5, 0.05, 6, 28);
+    for (let i = 0; i < 8; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: 0xff6a4a,
+        transparent: true,
+        opacity: 0,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      });
+      const mesh = new THREE.Mesh(ringGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.visible = false;
+      this.scene.add(mesh);
+      this.rings.push({ mesh, mat, t: 0, active: false });
+    }
+    const decalGeo = new THREE.CircleGeometry(1, 18);
+    for (let i = 0; i < 30; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x6b1218, transparent: true, opacity: 0, depthWrite: false });
+      const mesh = new THREE.Mesh(decalGeo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.visible = false;
+      this.scene.add(mesh);
+      this.decals.push({ mesh, mat, life: 0, active: false });
+    }
   }
 
   /* ================= enemies ================= */
@@ -590,6 +619,10 @@ export class Game {
       const k = Math.min(1, e.stateT / 0.45);
       e.group.rotation.x = -k * Math.PI * 0.5 * Math.cos(e.fallDir);
       e.group.rotation.z = k * Math.PI * 0.5 * Math.sin(e.fallDir);
+      if (e.slide) {
+        e.group.position.addScaledVector(e.slide, dt);
+        e.slide.multiplyScalar(1 - Math.min(1, dt * 5));
+      }
       if (e.stateT > 0.5) {
         e.group.position.y -= dt * 1.6;
         e.blob.scale.multiplyScalar(1 - dt * 2);
@@ -855,6 +888,21 @@ export class Game {
     this.sfx.die();
     this.burst(e.group.position.clone().setY(DECK_Y + 1.2), 0xd1202f, 16, 4.4, 0.55, 10, 0.07);
     this.burst(e.group.position.clone().setY(DECK_Y + 1.2), 0x23282b, 8, 3, 0.5, 10, 0.09);
+
+    // kill impact: hitstop, fov punch, shockwave ring, blood decal, screen flash
+    this.hitstop = Math.max(this.hitstop, head ? 0.075 : 0.05);
+    this.fovPunch = 1;
+    this.sfx.thump();
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    fwd.y = 0;
+    fwd.normalize().multiplyScalar(head ? 3.6 : 2.6);
+    e.slide = fwd;
+    this.spawnRing(e.group.position.clone().setY(DECK_Y + 0.12), head);
+    this.spawnDecal(e.group.position);
+    const flash = document.createElement("div");
+    flash.className = "fx-killflash" + (head ? " head" : "");
+    this.o.fx.appendChild(flash);
+    flash.addEventListener("animationend", () => flash.remove());
 
     this.kills++;
     if (head) this.headshots++;
@@ -1341,7 +1389,11 @@ export class Game {
     }
     const tsTarget = this.focusActive ? 0.34 : 1;
     this.timescale += (tsTarget - this.timescale) * Math.min(1, dt * 10);
-    const sdt = dt * this.timescale;
+    let sdt = dt * this.timescale;
+    if (this.hitstop > 0) {
+      this.hitstop -= dt;
+      sdt = 0;
+    }
 
     /* ---- player movement ---- */
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -1423,8 +1475,9 @@ export class Game {
       this.pos.z
     );
     this.camera.rotation.set(this.pitch + this.pitchKick + Math.sin(this.bobPhase) * 0.006, this.yaw, this.rollKick);
-    const fovT = this.focusActive ? 57 : 74;
-    this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * 9);
+    this.fovPunch *= 1 - Math.min(1, dt * 11);
+    const fovT = (this.focusActive ? 57 : 74) - this.fovPunch * 4.2;
+    this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * 14);
     this.camera.updateProjectionMatrix();
 
     /* ---- weapons ---- */
@@ -1586,6 +1639,31 @@ export class Game {
     }
   }
 
+  private spawnRing(at: THREE.Vector3, head: boolean) {
+    const r = this.rings.find((x) => !x.active);
+    if (!r) return;
+    r.active = true;
+    r.t = 0;
+    r.mesh.visible = true;
+    r.mesh.position.copy(at);
+    r.mesh.scale.setScalar(1);
+    r.mat.color.setHex(head ? 0xffd23f : 0xff6a4a);
+    r.mat.opacity = 0.75;
+  }
+
+  private spawnDecal(at: THREE.Vector3) {
+    let d = this.decals.find((x) => !x.active);
+    if (!d) d = this.decals.reduce((a, b) => (a.life < b.life ? a : b));
+    d.active = true;
+    d.life = 14;
+    d.mesh.visible = true;
+    d.mesh.position.set(at.x + (Math.random() - 0.5) * 0.6, DECK_Y + 0.035, at.z + (Math.random() - 0.5) * 0.6);
+    d.mesh.rotation.z = Math.random() * Math.PI;
+    const s = 0.55 + Math.random() * 0.75;
+    d.mesh.scale.set(s * (0.8 + Math.random() * 0.5), s, 1);
+    d.mat.opacity = 0.8;
+  }
+
   private ambientFx(dt: number) {
     // flare embers
     this.emberT -= dt;
@@ -1643,6 +1721,27 @@ export class Game {
         sh.active = false;
         sh.mesh.visible = false;
       }
+    }
+    for (const r of this.rings) {
+      if (!r.active) continue;
+      r.t += dt * 3.4;
+      if (r.t >= 1) {
+        r.active = false;
+        r.mesh.visible = false;
+        continue;
+      }
+      r.mesh.scale.setScalar(1 + r.t * 6.5);
+      r.mat.opacity = 0.75 * (1 - r.t);
+    }
+    for (const d of this.decals) {
+      if (!d.active) continue;
+      d.life -= sdt;
+      if (d.life <= 0) {
+        d.active = false;
+        d.mesh.visible = false;
+        continue;
+      }
+      d.mat.opacity = Math.min(0.8, d.life * 0.3);
     }
   }
 

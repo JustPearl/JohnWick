@@ -133,6 +133,11 @@ export class SFX {
     this.noise(0.25, 0.2, "lowpass", 1200, 160, 0.04);
   }
 
+  thump() {
+    this.tone("sine", 110, 36, 0.14, 0.5);
+    this.noise(0.08, 0.22, "lowpass", 480, 110, 0.01);
+  }
+
   slide() {
     this.noise(0.34, 0.2, "bandpass", 500, 1600);
   }

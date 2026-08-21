@@ -24,7 +24,7 @@ const DEFAULT_HUD: HudData = {
   weather: "LEADEN SKY",
   perkChoices: [],
   ownedPerks: {},
-  unlocked: [true, false, false],
+  unlocked: [true, false, false, false, false, false],
   perkLockT: 0,
 };
 
@@ -54,6 +54,29 @@ function PerkIcon({ icon, className = "h-4 w-4" }: { icon: string; className?: s
         <>
           <path d="M2 10h20v3h-9l-2 3h-3l1-3H2z" />
           <path d="M10 7h8" />
+        </>
+      )}
+      {icon === "lmg" && (
+        <>
+          <path d="M2 9h17v4h-5l-2 4h-3l1-4H2z" />
+          <path d="M19 10h3v2h-3" />
+          <path d="M8 13v4M12 13v3" />
+          <path d="M6 6h9" />
+        </>
+      )}
+      {icon === "sniper" && (
+        <>
+          <path d="M2 11h20v2.5h-8l-1.5 3.5h-3L11 13.5H2z" />
+          <circle cx="16" cy="8" r="2.2" />
+          <path d="M16 10.2V12M2 8h5" />
+        </>
+      )}
+      {icon === "revolver" && (
+        <>
+          <circle cx="13" cy="10" r="3" />
+          <circle cx="13" cy="10" r="0.8" fill="currentColor" stroke="none" />
+          <path d="M13 7h8v3h-4l-1 2h-3z" />
+          <path d="M9 11.5c-2 1-3 3.5-2.5 6.5 2.5.5 5-1 5.5-4" />
         </>
       )}
       {icon === "crosshair" && (
@@ -143,6 +166,9 @@ const WEAPON_LIST = [
   { slot: "1", name: "WIDOW-9", role: "SIDEARM", dmg: 82, rof: 42, ctl: 88, locked: false },
   { slot: "2", name: "HORNET", role: "SMG", dmg: 38, rof: 92, ctl: 56, locked: true },
   { slot: "3", name: "MAUL-12", role: "SHOTGUN", dmg: 96, rof: 18, ctl: 40, locked: true },
+  { slot: "4", name: "BOAR-7", role: "LMG", dmg: 70, rof: 78, ctl: 30, locked: true },
+  { slot: "5", name: "REAPER-7", role: "SNIPER", dmg: 100, rof: 8, ctl: 72, locked: true },
+  { slot: "6", name: "MAMBA-6", role: "REVOLVER", dmg: 88, rof: 28, ctl: 60, locked: true },
 ];
 
 const CONTROLS: [string, string][] = [
@@ -492,9 +518,9 @@ export default function App() {
             <div className="hud-panel clip-panel px-4 py-3">
               <div className="flex items-center justify-between">
                 <span className="font-display text-xl text-amber">{hud.weaponName}</span>
-                <div className="flex gap-1">
-                  {[0, 1, 2].map((i) =>
-                    hud.unlocked[i] ? (
+                <div className="flex flex-wrap gap-1">
+                  {hud.unlocked.map((isUnlocked, i) =>
+                    isUnlocked ? (
                       <span
                         key={i}
                         className={`clip-tag px-2 py-0.5 text-[11px] font-bold tracking-wider ${
@@ -696,20 +722,17 @@ export default function App() {
             <div className="hud-panel clip-panel p-4 panel-in-r panel-d1">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-display text-lg text-amber">WEAPON DOSSIER</span>
-                <span className="clip-tag bg-ink px-2 py-0.5 text-[10px] font-bold tracking-[0.25em] text-dim">KEYS 1-3</span>
+                <span className="clip-tag bg-ink px-2 py-0.5 text-[10px] font-bold tracking-[0.25em] text-dim">KEYS 1-6</span>
               </div>
-              <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
                 {WEAPON_LIST.map((w) => (
-                  <div key={w.slot} className={`relative border border-line/60 bg-ink/50 px-3 py-2 ${w.locked ? "opacity-55" : ""}`}>
-                    <div className="flex items-baseline justify-between">
-                      <span className="font-display text-base text-bone">{w.name}</span>
-                      {w.locked ? (
-                        <span className="flex items-center gap-1 text-[10px] font-bold tracking-[0.25em] text-dim">
-                          <PerkIcon icon="lock" className="h-3 w-3" /> LOCKED
-                        </span>
-                      ) : (
-                        <span className="text-[10px] font-bold tracking-[0.3em] text-dim">{w.role}</span>
-                      )}
+                  <div key={w.slot} className={`relative border border-line/60 bg-ink/50 px-2.5 py-2 ${w.locked ? "opacity-55" : ""}`}>
+                    <div className="flex items-baseline justify-between gap-1">
+                      <span className="font-display text-sm leading-tight text-bone">{w.name}</span>
+                      <span className="flex shrink-0 items-center gap-1 text-[9px] font-bold tracking-[0.15em] text-dim">
+                        {w.locked && <PerkIcon icon="lock" className="h-2.5 w-2.5" />}
+                        {w.role}
+                      </span>
                     </div>
                     <div className="mt-1.5 space-y-1">
                       <StatBar label="DMG" v={w.dmg} />
@@ -717,7 +740,7 @@ export default function App() {
                       <StatBar label="CTL" v={w.ctl} />
                     </div>
                     {w.locked && (
-                      <div className="mt-1 text-[10px] font-semibold tracking-[0.2em] text-tide/80">ACQUIRE VIA SUPPLY DROP</div>
+                      <div className="mt-1 text-[9px] font-semibold tracking-[0.15em] text-tide/80">VIA SUPPLY DROP</div>
                     )}
                   </div>
                 ))}

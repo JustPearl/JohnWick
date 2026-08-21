@@ -74,6 +74,9 @@ export const WEAPONS: WeaponDef[] = [
   { name: "WIDOW-9", kind: "pistol", dmg: 34, pellets: 1, magSize: 12, reserveMax: 84, rpm: 340, spread: 0.006, kick: 1.0, reloadTime: 1.05 },
   { name: "HORNET SMG", kind: "smg", dmg: 15, pellets: 1, magSize: 30, reserveMax: 180, rpm: 760, spread: 0.011, kick: 0.5, reloadTime: 1.5 },
   { name: "MAUL-12", kind: "shotgun", dmg: 16, pellets: 7, magSize: 6, reserveMax: 42, rpm: 88, spread: 0.028, kick: 2.4, reloadTime: 2.0 },
+  { name: "BOAR-7", kind: "lmg", dmg: 30, pellets: 1, magSize: 75, reserveMax: 225, rpm: 620, spread: 0.016, kick: 1.5, reloadTime: 3.4 },
+  { name: "REAPER-7", kind: "sniper", dmg: 150, pellets: 1, magSize: 5, reserveMax: 30, rpm: 42, spread: 0.003, kick: 3.4, reloadTime: 2.6 },
+  { name: "MAMBA-6", kind: "revolver", dmg: 62, pellets: 1, magSize: 6, reserveMax: 48, rpm: 150, spread: 0.008, kick: 2.1, reloadTime: 1.8 },
 ];
 
 /* ================= roguelite perks ================= */
@@ -94,6 +97,9 @@ export const PERKS: PerkDef[] = [
   // weapon unlocks (one-time)
   { id: "w_smg", name: "HORNET SMG", desc: "Unlock the HORNET — a 760 RPM pocket hose that shreds at close range.", tag: "WEAPON", icon: "smg", kind: "weapon", weaponSlot: 1, maxStacks: 1 },
   { id: "w_shotgun", name: "MAUL-12", desc: "Unlock the MAUL-12 tactical shotgun. Seven pellets of pure deletion.", tag: "WEAPON", icon: "shotgun", kind: "weapon", weaponSlot: 2, maxStacks: 1 },
+  { id: "w_lmg", name: "BOAR-7", desc: "Unlock the BOAR-7 LMG — a 7.62 belt-fed sledgehammer that never stops barking.", tag: "WEAPON", icon: "lmg", kind: "weapon", weaponSlot: 3, maxStacks: 1 },
+  { id: "w_sniper", name: "REAPER-7", desc: "Unlock the REAPER-7 bolt-action. One slow, perfect shot to end an argument.", tag: "WEAPON", icon: "sniper", kind: "weapon", weaponSlot: 4, maxStacks: 1 },
+  { id: "w_revolver", name: "MAMBA-6", desc: "Unlock the MAMBA-6 heavy revolver. Six chambers, zero mercy, iron sights only.", tag: "WEAPON", icon: "revolver", kind: "weapon", weaponSlot: 5, maxStacks: 1 },
   // offense
   { id: "deadeye", name: "DEADEYE", desc: "+22% weapon damage. Stack for compounding pain.", tag: "OFFENSE", icon: "crosshair", kind: "stat", maxStacks: 4 },
   { id: "headhunter", name: "HEADHUNTER", desc: "+35% headshot damage multiplier.", tag: "OFFENSE", icon: "skull", kind: "stat", maxStacks: 3 },
@@ -117,7 +123,7 @@ export const PERKS: PerkDef[] = [
 
 export const PERK_UI = {
   CHOICES: 3,
-  WEAPON_GUARANTEE_WAVE: 2, // guarantee a weapon unlock offer through this wave
+  WEAPON_GUARANTEE_WAVE: 4, // guarantee a weapon unlock offer through this wave
   LOCKOUT: 0.6, // seconds the picker stays un-clickable after appearing
 } as const;
 

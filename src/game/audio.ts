@@ -1,6 +1,6 @@
 /* Procedural WebAudio SFX — no assets, everything synthesized. */
 
-export type ShotKind = "pistol" | "smg" | "shotgun";
+export type ShotKind = "pistol" | "smg" | "shotgun" | "lmg" | "sniper" | "revolver";
 
 export class SFX {
   private ctx: AudioContext | null = null;
@@ -93,10 +93,27 @@ export class SFX {
     } else if (kind === "smg") {
       this.noise(0.08, 0.4, "lowpass", 3000, 420);
       this.tone("square", 240, 80, 0.06, 0.22);
-    } else {
+    } else if (kind === "shotgun") {
       this.noise(0.3, 0.62, "lowpass", 2200, 120);
       this.tone("sawtooth", 120, 38, 0.24, 0.4);
       this.noise(0.06, 0.3, "highpass", 2400, 4000);
+    } else if (kind === "lmg") {
+      this.noise(0.22, 0.55, "lowpass", 2600, 180);
+      this.tone("square", 150, 48, 0.16, 0.36);
+      this.noise(0.04, 0.26, "highpass", 2800, 4600);
+    } else if (kind === "sniper") {
+      this.noise(0.4, 0.7, "lowpass", 1900, 90);
+      this.tone("sawtooth", 95, 26, 0.34, 0.5);
+      this.noise(0.1, 0.34, "highpass", 2100, 3600);
+      // bolt-action follow-through crack
+      this.tone("square", 1600, 900, 0.05, 0.1, 0.28);
+      this.noise(0.05, 0.18, "bandpass", 2600, 1800, 0.4);
+    } else {
+      // revolver: big-bore bark with cylinder click
+      this.noise(0.18, 0.5, "lowpass", 2400, 150);
+      this.tone("square", 130, 40, 0.2, 0.4);
+      this.noise(0.05, 0.28, "highpass", 2600, 4200);
+      this.tone("square", 2400, 1500, 0.03, 0.08, 0.16);
     }
   }
 

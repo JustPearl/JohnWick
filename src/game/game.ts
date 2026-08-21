@@ -150,7 +150,7 @@ export class Game {
 
   /* weapons */
   private weapons = WEAPONS.map((w) => ({ def: w, mag: w.magSize, reserve: w.reserveMax }));
-  private weaponUnlocked = [true, false, false];
+  private weaponUnlocked = WEAPONS.map((_, i) => i === 0);
   private slot = 0;
 
   /* roguelite perks */
@@ -189,6 +189,7 @@ export class Game {
     ammoMult: 1,
   };
   private firing = false;
+  private triggerLatch = false; // semi-auto weapons (sniper/revolver) fire once per click
   private fireCd = 0;
   private reloading = 0;
   private reloadTotal = 1;
@@ -885,8 +886,11 @@ export class Game {
       if (w.reserve > 0) this.startReload();
       return;
     }
+    const semi = w.def.kind === "sniper" || w.def.kind === "revolver";
+    if (semi && this.triggerLatch) return; // one shot per trigger pull
     this.fireCd = 60 / w.def.rpm;
     w.mag--;
+    if (semi) this.triggerLatch = true;
     this.shotsFired++;
     this.sfx.shot(w.def.kind);
     this.vmRecoil = Math.min(RECOIL.VM_CAP, this.vmRecoil + RECOIL.VM_ADD + w.def.kick * RECOIL.VM_PER_KICK);
@@ -1213,6 +1217,9 @@ export class Game {
       if (e.code === "Digit1") this.switchTo(0);
       if (e.code === "Digit2") this.switchTo(1);
       if (e.code === "Digit3") this.switchTo(2);
+      if (e.code === "Digit4") this.switchTo(3);
+      if (e.code === "Digit5") this.switchTo(4);
+      if (e.code === "Digit6") this.switchTo(5);
       if (e.code === "KeyR") this.startReload();
       if (e.code === "KeyP") this.pause();
     } else if (this.screen === "perk") {
@@ -1238,7 +1245,10 @@ export class Game {
   }
 
   private onMouseUp(e: MouseEvent) {
-    if (e.button === 0) this.firing = false;
+    if (e.button === 0) {
+      this.firing = false;
+      this.triggerLatch = false;
+    }
     if (e.button === 2) this.wantFocus = false;
   }
 
@@ -1283,6 +1293,7 @@ export class Game {
     // weapon switch interrupts any reload; staged shells already racked in stay loaded
     if (this.reloading > 0) this.cancelReload();
     this.slot = i;
+    this.triggerLatch = false;
     this.vmLift = -0.4;
     this.vmGroups.forEach((g, k) => (g.visible = k === i));
     this.sfx.reload(0);
@@ -1488,7 +1499,7 @@ export class Game {
     // roguelite reset: only the sidearm is carried; perks are earned per run
     this.ownedPerks = {};
     this.perkChoices = [];
-    this.weaponUnlocked = [true, false, false];
+    this.weaponUnlocked = WEAPONS.map((_, i) => i === 0);
     this.recomputeStats();
     this.hp = this.stat.hpMax;
     this.focus = FOCUS.START;

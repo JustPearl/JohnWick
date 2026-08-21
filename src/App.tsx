@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Game, type HudData, type UiState } from "./game/game";
+import { PERKS, WEAPONS, type PerkDef } from "./game/config";
 
 const DEFAULT_HUD: HudData = {
   hp: 100,
@@ -21,7 +22,12 @@ const DEFAULT_HUD: HudData = {
   waveState: "interm",
   kills: 0,
   weather: "LEADEN SKY",
+  perkChoices: [],
+  ownedPerks: {},
+  unlocked: [true, false, false],
 };
+
+const PERK_BY_ID: Record<string, PerkDef> = Object.fromEntries(PERKS.map((p) => [p.id, p]));
 
 const WEAPON_LIST = [
   { slot: "1", name: "WIDOW-9", role: "SIDEARM", dmg: 82, rof: 42, ctl: 88 },

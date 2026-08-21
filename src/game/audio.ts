@@ -183,6 +183,13 @@ export class SFX {
     this.tone("triangle", 880, 880, 0.24, 0.22, 0.22);
   }
 
+  perk() {
+    this.tone("square", 520, 520, 0.06, 0.16);
+    this.tone("square", 780, 780, 0.06, 0.16, 0.06);
+    this.tone("square", 1040, 1040, 0.12, 0.16, 0.12);
+    this.tone("triangle", 1560, 1560, 0.2, 0.1, 0.18);
+  }
+
   pickup() {
     this.tone("square", 700, 1050, 0.06, 0.14);
     this.tone("square", 1050, 1500, 0.09, 0.12, 0.06);

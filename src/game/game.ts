@@ -19,6 +19,8 @@ import {
   ILLUM,
   WEATHER,
   WEATHER_CYCLE,
+  PERKS,
+  PERK_UI,
   type WeaponDef,
   type EnemyType,
   type Enemy,
@@ -26,6 +28,7 @@ import {
   type UiState,
   type HudData,
   type GameOptions,
+  type PerkDef,
 } from "./config";
 
 export type { Screen, GameStats, UiState, HudData, GameOptions } from "./config";
@@ -147,7 +150,43 @@ export class Game {
 
   /* weapons */
   private weapons = WEAPONS.map((w) => ({ def: w, mag: w.magSize, reserve: w.reserveMax }));
+  private weaponUnlocked = [true, false, false];
   private slot = 0;
+
+  /* roguelite perks */
+  private ownedPerks: Record<string, number> = {};
+  private perkChoices: string[] = [];
+  private stat: {
+    dmgMult: number;
+    headMult: number;
+    reloadMult: number;
+    magMult: number;
+    hpMax: number;
+    dmgTakenMult: number;
+    regenMult: number;
+    speedMult: number;
+    focusMax: number;
+    focusDrainMult: number;
+    killHeal: number;
+    lifesteal: number;
+    headFocusRefund: number;
+    ammoMult: number;
+  } = {
+    dmgMult: 1,
+    headMult: KILL.HEAD_MULT,
+    reloadMult: 1,
+    magMult: 1,
+    hpMax: PLAYER.HP_MAX,
+    dmgTakenMult: 1,
+    regenMult: 1,
+    speedMult: 1,
+    focusMax: FOCUS.MAX,
+    focusDrainMult: 1,
+    killHeal: 0,
+    lifesteal: 0,
+    headFocusRefund: 0,
+    ammoMult: 1,
+  };
   private firing = false;
   private fireCd = 0;
   private reloading = 0;
@@ -888,14 +927,14 @@ export class Game {
         const en = this.enemies.find((x) => x.id === eid);
         const isHead = eH.object.name === "head";
         if (en && en.state !== "dying") {
-          const dmg = w.def.dmg * (isHead ? KILL.HEAD_MULT : 1);
+          const dmg = w.def.dmg * this.stat.dmgMult * (isHead ? this.stat.headMult : 1);
           this.hitEnemy(en, dmg, isHead, eH.point);
         }
         end = eH.point;
       } else if (sHits.length) {
         end = sHits[0].point;
         const bid = sHits[0].object.userData.bid as number | undefined;
-        if (bid !== undefined) this.damageBarrel(bid, w.def.dmg);
+        if (bid !== undefined) this.damageBarrel(bid, w.def.dmg * this.stat.dmgMult);
         this.burst(sHits[0].point, PAL.SPARK, 7, 3.4, 0.34, 9, 0.045);
         this.burst(sHits[0].point, PAL.SMOKE, 2, 0.8, 0.5, -1.5, 0.07);
       } else {
@@ -932,6 +971,9 @@ export class Game {
     this.hitT = 0.13;
     this.sfx.hit(head);
     this.burst(point, head ? PAL.HAZARD : PAL.BLOOD, head ? 12 : 7, 3.4, 0.4, 9, 0.06);
+    if (this.stat.lifesteal > 0 && this.hp > 0) {
+      this.hp = Math.min(this.stat.hpMax, this.hp + dmg * this.stat.lifesteal);
+    }
     if (e.hp <= 0) this.killEnemy(e, head);
   }
 
@@ -967,7 +1009,13 @@ export class Game {
     const base = e.type === "heavy" ? KILL.SCORE.heavy : e.type === "rusher" ? KILL.SCORE.rusher : KILL.SCORE.thug;
     const gained = Math.round(base * (head ? KILL.HEAD_SCORE_MULT : 1) * mult);
     this.score += gained;
-    this.focus = Math.min(FOCUS.MAX, this.focus + FOCUS.KILL_GAIN);
+    this.focus = Math.min(this.stat.focusMax, this.focus + FOCUS.KILL_GAIN);
+    if (this.stat.killHeal > 0) {
+      this.hp = Math.min(this.stat.hpMax, this.hp + this.stat.killHeal);
+    }
+    if (head && this.stat.headFocusRefund > 0) {
+      this.focus = Math.min(this.stat.focusMax, this.focus + this.stat.headFocusRefund);
+    }
 
     const p = e.group.position.clone().setY(DECK_Y + 1.9);
     this.popup(p, `+${gained}`, head ? "text-hazard" : "text-amber");
@@ -983,7 +1031,7 @@ export class Game {
 
   private damagePlayer(amount: number) {
     if (this.screen !== "playing") return;
-    this.hp -= amount;
+    this.hp -= amount * this.stat.dmgTakenMult;
     this.lastDamageT = this.time;
     this.damageFlash = 1;
     this.shake = Math.min(1.4, this.shake + 0.7);
@@ -1092,10 +1140,13 @@ export class Game {
     if (!first) {
       const bonus = WAVES.BONUS_BASE + this.wave * WAVES.BONUS_PER_WAVE;
       this.score += bonus;
-      for (const w of this.weapons) w.reserve = w.def.reserveMax;
-      this.hp = Math.min(PLAYER.HP_MAX, this.hp + PLAYER.WAVE_HEAL);
-      this.banner("WAVE CLEARED", `SUPPLY DROP +${bonus} · AMMO RESTOCKED`);
-      this.sfx.waveClear();
+      for (let i = 0; i < this.weapons.length; i++) {
+        if (!this.weaponUnlocked[i]) continue;
+        this.weapons[i].reserve = Math.round(this.weapons[i].def.reserveMax * this.stat.ammoMult);
+      }
+      this.hp = Math.min(this.stat.hpMax, this.hp + PLAYER.WAVE_HEAL);
+      this.banner("WAVE CLEARED", `SUPPLY DROP +${bonus} · CHOOSE AN UPGRADE`);
+      this.openPerkSelection();
     } else {
       this.banner("RIG 09 BREACHED", "HOSTILES INBOUND — HOLD THE DECK");
       this.sfx.wave();
@@ -1213,6 +1264,10 @@ export class Game {
 
   private switchTo(i: number) {
     if (i === this.slot) return;
+    if (!this.weaponUnlocked[i]) {
+      this.sfx.dry();
+      return;
+    }
     // weapon switch interrupts any reload; staged shells already racked in stay loaded
     if (this.reloading > 0) this.cancelReload();
     this.slot = i;
@@ -1223,17 +1278,18 @@ export class Game {
 
   private startReload() {
     const w = this.weapons[this.slot];
-    if (this.reloading > 0 || w.mag >= w.def.magSize || w.reserve <= 0) return;
+    const magSize = this.magSizeOf(w.def);
+    if (this.reloading > 0 || w.mag >= magSize || w.reserve <= 0) return;
     this.staged = false;
     this.stagedLoaded = 0;
     if (w.def.kind === "shotgun") {
       // staged: open pump, one shell per cycle, final pump
-      const n = Math.min(w.def.magSize - w.mag, w.reserve);
+      const n = Math.min(magSize - w.mag, w.reserve);
       this.staged = true;
       this.stagedTotal = n;
-      this.reloading = RELOAD.OPEN_PUMP + n * RELOAD.SHELL_TIME + RELOAD.FINAL_PUMP;
+      this.reloading = (RELOAD.OPEN_PUMP + n * RELOAD.SHELL_TIME + RELOAD.FINAL_PUMP) * this.stat.reloadMult;
     } else {
-      this.reloading = w.def.reloadTime;
+      this.reloading = w.def.reloadTime * this.stat.reloadMult;
     }
     this.reloadTotal = this.reloading;
     this.sfx.reload(0);
@@ -1243,6 +1299,101 @@ export class Game {
   private cancelReload() {
     this.reloading = 0;
     this.staged = false;
+  }
+
+  /* ================= roguelite perks ================= */
+  private owned(id: string): number {
+    return this.ownedPerks[id] || 0;
+  }
+
+  private recomputeStats() {
+    const s = this.stat;
+    s.dmgMult = Math.pow(1.22, this.owned("deadeye"));
+    s.headMult = KILL.HEAD_MULT * Math.pow(1.35, this.owned("headhunter"));
+    s.reloadMult = Math.pow(0.8, this.owned("fasthands"));
+    s.magMult = Math.pow(1.35, this.owned("deepmags"));
+    s.hpMax = PLAYER.HP_MAX + 30 * this.owned("ironhide");
+    s.dmgTakenMult = Math.pow(0.88, this.owned("thickskin"));
+    s.regenMult = 1 + 0.6 * this.owned("secondwind");
+    s.speedMult = Math.pow(1.09, this.owned("adrenaline"));
+    s.focusMax = FOCUS.MAX + 30 * this.owned("focuswell");
+    s.focusDrainMult = Math.pow(0.75, this.owned("stillness"));
+    s.killHeal = 6 * this.owned("adrenalrush");
+    s.lifesteal = 0.08 * this.owned("vampire");
+    s.headFocusRefund = 10 * this.owned("executioner");
+    s.ammoMult = 1 + 0.6 * this.owned("scavenger");
+  }
+
+  /** Effective magazine size after DEEP MAGS. */
+  private magSizeOf(def: WeaponDef): number {
+    return Math.round(def.magSize * this.stat.magMult);
+  }
+
+  private unlockWeapon(slot: number) {
+    if (slot < 0 || slot >= this.weapons.length) return;
+    this.weaponUnlocked[slot] = true;
+    const w = this.weapons[slot];
+    w.mag = this.magSizeOf(w.def);
+    w.reserve = Math.round(w.def.reserveMax * this.stat.ammoMult);
+  }
+
+  private pickPerkChoices(): PerkDef[] {
+    const available = PERKS.filter((p) => this.owned(p.id) < p.maxStacks);
+    const choices: PerkDef[] = [];
+    // guarantee a weapon unlock early so the player arms up
+    if (this.wave <= PERK_UI.WEAPON_GUARANTEE_WAVE) {
+      const weapons = available.filter((p) => p.kind === "weapon");
+      if (weapons.length) choices.push(weapons[Math.floor(Math.random() * weapons.length)]);
+    }
+    const pool = available.filter((p) => !choices.includes(p));
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    while (choices.length < PERK_UI.CHOICES && pool.length) choices.push(pool.pop()!);
+    return choices;
+  }
+
+  private openPerkSelection() {
+    const picks = this.pickPerkChoices();
+    if (picks.length === 0) {
+      // nothing left to offer — just run the intermission
+      return;
+    }
+    this.perkChoices = picks.map((p) => p.id);
+    this.screen = "perk";
+    this.firing = false;
+    this.wantFocus = false;
+    this.extinguishFlash();
+    document.exitPointerLock();
+    this.sfx.waveClear();
+    this.o.onUi({ screen: "perk", stats: null });
+    this.pushHud();
+  }
+
+  choosePerk(index: number) {
+    if (this.screen !== "perk") return;
+    const id = this.perkChoices[index];
+    const perk = PERKS.find((p) => p.id === id);
+    if (!perk) return;
+    this.ownedPerks[id] = this.owned(id) + 1;
+    this.recomputeStats();
+
+    if (perk.kind === "weapon" && perk.weaponSlot !== undefined) {
+      this.unlockWeapon(perk.weaponSlot);
+      this.switchTo(perk.weaponSlot);
+    }
+    if (id === "ironhide") this.hp = this.stat.hpMax;
+    if (id === "focuswell") this.focus = this.stat.focusMax;
+
+    this.banner(perk.name.toUpperCase(), perk.desc);
+    this.sfx.perk();
+    this.perkChoices = [];
+    this.screen = "playing";
+    this.lastLockRequest = this.time;
+    this.o.onUi({ screen: "playing", stats: null });
+    this.requestLock();
+    this.pushHud();
   }
 
   /* ================= flow ================= */
@@ -1316,12 +1467,21 @@ export class Game {
     this.vel.set(0, 0, 0);
     this.yaw = Math.PI;
     this.pitch = 0;
-    this.hp = PLAYER.HP_MAX;
+    // roguelite reset: only the sidearm is carried; perks are earned per run
+    this.ownedPerks = {};
+    this.perkChoices = [];
+    this.weaponUnlocked = [true, false, false];
+    this.recomputeStats();
+    this.hp = this.stat.hpMax;
     this.focus = FOCUS.START;
     this.focusActive = false;
     this.timescale = 1;
     this.sliding = 0;
-    this.weapons = WEAPONS.map((w) => ({ def: w, mag: w.magSize, reserve: w.reserveMax }));
+    this.weapons = WEAPONS.map((w, i) => ({
+      def: w,
+      mag: this.weaponUnlocked[i] ? this.magSizeOf(w) : 0,
+      reserve: this.weaponUnlocked[i] ? Math.round(w.reserveMax * this.stat.ammoMult) : 0,
+    }));
     this.slot = 0;
     this.vmGroups.forEach((g, k) => (g.visible = k === 0));
     this.reloading = 0;
@@ -1454,6 +1614,13 @@ export class Game {
       return;
     }
 
+    if (this.screen === "perk") {
+      // world stays alive behind the perk picker; gameplay logic is frozen
+      this.stepFx(dt, dt);
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
+
     // pointer lock lost without pause (e.g. browser denied re-lock)
     if (document.pointerLockElement !== this.renderer.domElement && this.time - this.lastLockRequest > 1.2) {
       this.pause();
@@ -1474,7 +1641,7 @@ export class Game {
       this.o.wrap.classList.add("no-focus-fx");
     }
     if (this.focusActive) {
-      this.focus = Math.max(0, this.focus - FOCUS.DRAIN * dt);
+      this.focus = Math.max(0, this.focus - FOCUS.DRAIN * this.stat.focusDrainMult * dt);
       if (this.focus <= 0) {
         this.focusActive = false;
         this.sfx.focus(false);
@@ -1482,7 +1649,7 @@ export class Game {
         this.o.wrap.classList.add("no-focus-fx");
       }
     } else {
-      this.focus = Math.min(FOCUS.MAX, this.focus + FOCUS.REGEN * dt);
+      this.focus = Math.min(this.stat.focusMax, this.focus + FOCUS.REGEN * dt);
     }
     const tsTarget = this.focusActive ? FOCUS.TIME_SCALE : 1;
     this.timescale += (tsTarget - this.timescale) * Math.min(1, dt * 10);
@@ -1506,7 +1673,7 @@ export class Game {
 
     const sprinting = this.keys.has("ShiftLeft") && mz > 0 && this.sliding <= 0;
     this.sprinting = sprinting && moveDir.lengthSq() > 0;
-    let speed = sprinting ? PLAYER.SPRINT : PLAYER.WALK;
+    let speed = (sprinting ? PLAYER.SPRINT : PLAYER.WALK) * this.stat.speedMult;
     if (this.focusActive) speed *= PLAYER.FOCUS_SPEED_MULT;
 
     // slide
@@ -1608,13 +1775,16 @@ export class Game {
       this.reloading -= dt;
       const w = this.weapons[this.slot];
       if (this.staged) {
-        // each shell racks in OPEN_PUMP + i * SHELL_TIME into the reload
+        // each shell racks in OPEN_PUMP + i * SHELL_TIME into the reload (scaled by FAST HANDS)
         const elapsed = this.reloadTotal - this.reloading;
+        const openT = RELOAD.OPEN_PUMP * this.stat.reloadMult;
+        const shellT = RELOAD.SHELL_TIME * this.stat.reloadMult;
         const want = Math.min(
           this.stagedTotal,
-          Math.max(0, Math.floor((elapsed - RELOAD.OPEN_PUMP) / RELOAD.SHELL_TIME) + 1)
+          Math.max(0, Math.floor((elapsed - openT) / shellT) + 1)
         );
-        while (this.stagedLoaded < want && w.reserve > 0) {
+        const cap = this.magSizeOf(w.def);
+        while (this.stagedLoaded < want && w.reserve > 0 && w.mag < cap) {
           this.stagedLoaded++;
           w.mag++;
           w.reserve--;
@@ -1626,7 +1796,7 @@ export class Game {
       if (this.reloading <= 0) {
         if (this.staged) this.sfx.slide(); // final pump
         else {
-          const need = w.def.magSize - w.mag;
+          const need = this.magSizeOf(w.def) - w.mag;
           const take = Math.min(need, w.reserve);
           w.mag += take;
           w.reserve -= take;
@@ -1708,13 +1878,18 @@ export class Game {
       if (this.pos.distanceTo(body.position) < 1.6) {
         this.sfx.pickup();
         if (pk.kind === "ammo") {
-          for (const w of this.weapons) w.reserve = Math.min(w.def.reserveMax, w.reserve + Math.round(w.def.reserveMax * KILL.AMMO_REFILL));
+          for (let i = 0; i < this.weapons.length; i++) {
+            if (!this.weaponUnlocked[i]) continue;
+            const w = this.weapons[i];
+            const cap = Math.round(w.def.reserveMax * this.stat.ammoMult);
+            w.reserve = Math.min(cap, w.reserve + Math.round(w.def.reserveMax * KILL.AMMO_REFILL * this.stat.ammoMult));
+          }
           this.popup(body.position.clone(), "AMMO CACHE", "text-amber");
         } else if (pk.kind === "med") {
-          this.hp = Math.min(PLAYER.HP_MAX, this.hp + KILL.PICKUP_HP);
+          this.hp = Math.min(this.stat.hpMax, this.hp + KILL.PICKUP_HP);
           this.popup(body.position.clone(), `+${KILL.PICKUP_HP} HP`, "text-blood");
         } else {
-          this.focus = Math.min(FOCUS.MAX, this.focus + KILL.PICKUP_FOCUS);
+          this.focus = Math.min(this.stat.focusMax, this.focus + KILL.PICKUP_FOCUS);
           this.popup(body.position.clone(), `FOCUS +${KILL.PICKUP_FOCUS}`, "text-tide");
         }
         this.burst(body.position.clone(), 0xffd98a, 10, 2.4, 0.4, 4, 0.06);
@@ -1743,7 +1918,7 @@ export class Game {
 
     // hp regen
     if (this.time - this.lastDamageT > PLAYER.REGEN_DELAY && this.hp > 0) {
-      this.hp = Math.min(PLAYER.HP_MAX, this.hp + PLAYER.REGEN_RATE * dt);
+      this.hp = Math.min(this.stat.hpMax, this.hp + PLAYER.REGEN_RATE * this.stat.regenMult * dt);
     }
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.2);
     this.o.vignette.style.opacity = String(this.damageFlash * 0.85);
@@ -2186,10 +2361,10 @@ export class Game {
       weaponName: w.def.name,
       slot: this.slot,
       mag: w.mag,
-      magSize: w.def.magSize,
+      magSize: this.magSizeOf(w.def),
       reserve: w.reserve,
       reloading: this.reloading > 0,
-      lowAmmo: w.mag <= Math.ceil(w.def.magSize * 0.25),
+      lowAmmo: w.mag <= Math.ceil(this.magSizeOf(w.def) * 0.25),
       score: this.score,
       best: this.best,
       combo: this.combo,
@@ -2199,6 +2374,9 @@ export class Game {
       waveState: this.waveState,
       kills: this.kills,
       weather: this.wxS.name,
+      perkChoices: this.perkChoices,
+      ownedPerks: { ...this.ownedPerks },
+      unlocked: [...this.weaponUnlocked],
     });
   }
 }

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import type { ShotKind } from "./audio";
 
 /* ================= UI / lifecycle types ================= */
-export type Screen = "menu" | "playing" | "paused" | "over";
+export type Screen = "menu" | "playing" | "paused" | "over" | "perk";
 
 export interface GameStats {
   score: number;
@@ -40,6 +40,9 @@ export interface HudData {
   waveState: "combat" | "interm";
   kills: number;
   weather: string;
+  perkChoices: string[];
+  ownedPerks: Record<string, number>;
+  unlocked: boolean[];
 }
 
 export interface GameOptions {
@@ -71,6 +74,50 @@ export const WEAPONS: WeaponDef[] = [
   { name: "HORNET SMG", kind: "smg", dmg: 15, pellets: 1, magSize: 30, reserveMax: 180, rpm: 760, spread: 0.011, kick: 0.5, reloadTime: 1.5 },
   { name: "MAUL-12", kind: "shotgun", dmg: 16, pellets: 7, magSize: 6, reserveMax: 42, rpm: 88, spread: 0.028, kick: 2.4, reloadTime: 2.0 },
 ];
+
+/* ================= roguelite perks ================= */
+export type PerkKind = "weapon" | "stat" | "ability";
+
+export interface PerkDef {
+  id: string;
+  name: string;
+  desc: string;
+  tag: string;
+  icon: string;
+  kind: PerkKind;
+  weaponSlot?: number;
+  maxStacks: number;
+}
+
+export const PERKS: PerkDef[] = [
+  // weapon unlocks (one-time)
+  { id: "w_smg", name: "HORNET SMG", desc: "Unlock the HORNET — a 760 RPM pocket hose that shreds at close range.", tag: "WEAPON", icon: "smg", kind: "weapon", weaponSlot: 1, maxStacks: 1 },
+  { id: "w_shotgun", name: "MAUL-12", desc: "Unlock the MAUL-12 tactical shotgun. Seven pellets of pure deletion.", tag: "WEAPON", icon: "shotgun", kind: "weapon", weaponSlot: 2, maxStacks: 1 },
+  // offense
+  { id: "deadeye", name: "DEADEYE", desc: "+22% weapon damage. Stack for compounding pain.", tag: "OFFENSE", icon: "crosshair", kind: "stat", maxStacks: 4 },
+  { id: "headhunter", name: "HEADHUNTER", desc: "+35% headshot damage multiplier.", tag: "OFFENSE", icon: "skull", kind: "stat", maxStacks: 3 },
+  { id: "fasthands", name: "FAST HANDS", desc: "−20% reload time. Stack toward near-instant reloads.", tag: "OFFENSE", icon: "reload", kind: "stat", maxStacks: 3 },
+  { id: "deepmags", name: "DEEP MAGS", desc: "+35% magazine size on every weapon.", tag: "OFFENSE", icon: "mag", kind: "stat", maxStacks: 3 },
+  // defense
+  { id: "ironhide", name: "IRONHIDE", desc: "+30 max health, and heal to full right now.", tag: "DEFENSE", icon: "shield", kind: "stat", maxStacks: 4 },
+  { id: "thickskin", name: "THICK SKIN", desc: "−12% damage taken. Stack into real armor.", tag: "DEFENSE", icon: "armor", kind: "stat", maxStacks: 4 },
+  { id: "secondwind", name: "SECOND WIND", desc: "Health regenerates 60% faster after combat.", tag: "DEFENSE", icon: "heart", kind: "stat", maxStacks: 2 },
+  // mobility
+  { id: "adrenaline", name: "ADRENALINE", desc: "+9% movement speed. Stack to outrun the storm.", tag: "MOBILITY", icon: "boot", kind: "stat", maxStacks: 3 },
+  // focus
+  { id: "focuswell", name: "FOCUS WELL", desc: "+30 max Focus and refill it right now.", tag: "FOCUS", icon: "eye", kind: "stat", maxStacks: 3 },
+  { id: "stillness", name: "STILLNESS", desc: "Focus drains 25% slower while time is bent.", tag: "FOCUS", icon: "clock", kind: "stat", maxStacks: 3 },
+  // abilities (one-time)
+  { id: "adrenalrush", name: "ADRENAL RUSH", desc: "Every kill restores 6 health.", tag: "ABILITY", icon: "bolt", kind: "ability", maxStacks: 1 },
+  { id: "vampire", name: "VAMPIRE", desc: "Heal for 8% of the damage you deal.", tag: "ABILITY", icon: "fang", kind: "ability", maxStacks: 1 },
+  { id: "executioner", name: "EXECUTIONER", desc: "Headshots refund 10 Focus.", tag: "ABILITY", icon: "target", kind: "ability", maxStacks: 1 },
+  { id: "scavenger", name: "SCAVENGER", desc: "+60% ammo from pickups and wave restocks.", tag: "ABILITY", icon: "crate", kind: "ability", maxStacks: 1 },
+];
+
+export const PERK_UI = {
+  CHOICES: 3,
+  WEAPON_GUARANTEE_WAVE: 2, // guarantee a weapon unlock offer through this wave
+} as const;
 
 /* ================= enemies ================= */
 export type EnemyType = "thug" | "rusher" | "heavy";

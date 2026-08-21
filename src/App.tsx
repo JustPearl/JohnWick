@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Game, type HudData, type UiState } from "./game/game";
-import { PERKS, WEAPONS, type PerkDef } from "./game/config";
+import { PERKS, type PerkDef } from "./game/config";
 
 const DEFAULT_HUD: HudData = {
   hp: 100,
@@ -29,10 +29,119 @@ const DEFAULT_HUD: HudData = {
 
 const PERK_BY_ID: Record<string, PerkDef> = Object.fromEntries(PERKS.map((p) => [p.id, p]));
 
+const PERK_TAG_CLS: Record<string, string> = {
+  WEAPON: "border-amber/60 text-amber",
+  OFFENSE: "border-blood/60 text-blood",
+  DEFENSE: "border-tide/60 text-tide",
+  MOBILITY: "border-hazard/60 text-hazard",
+  FOCUS: "border-tide/60 text-tide",
+  ABILITY: "border-ember/60 text-ember",
+};
+
+function PerkIcon({ icon, className = "h-4 w-4" }: { icon: string; className?: string }) {
+  const stroke = { fill: "none", stroke: "currentColor", strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round" } as const;
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...stroke}>
+      {icon === "smg" && (
+        <>
+          <path d="M3 9h15v4h-4l-1 3h-3l-1-3H3z" />
+          <path d="M18 10h3v2h-3" />
+          <path d="M9 16v3" />
+        </>
+      )}
+      {icon === "shotgun" && (
+        <>
+          <path d="M2 10h20v3h-9l-2 3h-3l1-3H2z" />
+          <path d="M10 7h8" />
+        </>
+      )}
+      {icon === "crosshair" && (
+        <>
+          <circle cx="12" cy="12" r="6" />
+          <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+        </>
+      )}
+      {icon === "skull" && (
+        <>
+          <path d="M12 3a7 7 0 0 0-7 7c0 3 2 4.5 2 6.5V19h10v-2.5c0-2 2-3.5 2-6.5a7 7 0 0 0-7-7z" />
+          <circle cx="9.5" cy="11" r="1.4" fill="currentColor" stroke="none" />
+          <circle cx="14.5" cy="11" r="1.4" fill="currentColor" stroke="none" />
+          <path d="M10 19v2M14 19v2" />
+        </>
+      )}
+      {icon === "reload" && (
+        <>
+          <path d="M20 12a8 8 0 1 1-2.3-5.6" />
+          <path d="M18 2v4.5h-4.5" />
+        </>
+      )}
+      {icon === "mag" && (
+        <>
+          <path d="M7 4h10v13l-3 3H7z" />
+          <path d="M10 8h4M10 12h4" />
+        </>
+      )}
+      {icon === "shield" && <path d="M12 3l7 3v6c0 5-3.5 7.8-7 9-3.5-1.2-7-4-7-9V6z" />}
+      {icon === "armor" && (
+        <>
+          <path d="M12 3l7 3v6c0 5-3.5 7.8-7 9-3.5-1.2-7-4-7-9V6z" />
+          <path d="M12 8v6M9 11h6" />
+        </>
+      )}
+      {icon === "heart" && <path d="M12 20s-7.5-4.6-7.5-10A4.4 4.4 0 0 1 12 7a4.4 4.4 0 0 1 7.5 3c0 5.4-7.5 10-7.5 10z" />}
+      {icon === "boot" && (
+        <>
+          <path d="M6 4h5v8h5a4 4 0 0 1 4 4v2H6z" />
+          <path d="M6 15h5" />
+        </>
+      )}
+      {icon === "eye" && (
+        <>
+          <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6z" />
+          <circle cx="12" cy="12" r="2.6" />
+        </>
+      )}
+      {icon === "clock" && (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <path d="M12 7v5l3.5 2" />
+        </>
+      )}
+      {icon === "bolt" && <path d="M13 2L5 13h5l-1 9 8-11h-5z" />}
+      {icon === "fang" && (
+        <>
+          <path d="M7 5c0 8 2 13 3.5 15C12 18 13 14 13 10" />
+          <path d="M13 10c0 4 1 8 2.5 10C17 18 18 13 18 5" />
+          <path d="M7 5h11" />
+        </>
+      )}
+      {icon === "target" && (
+        <>
+          <circle cx="12" cy="12" r="8" />
+          <circle cx="12" cy="12" r="4" />
+          <circle cx="12" cy="12" r="0.8" fill="currentColor" stroke="none" />
+        </>
+      )}
+      {icon === "crate" && (
+        <>
+          <rect x="4" y="6" width="16" height="13" />
+          <path d="M4 6l16 13M20 6L4 19" />
+        </>
+      )}
+      {icon === "lock" && (
+        <>
+          <rect x="6" y="11" width="12" height="9" />
+          <path d="M9 11V8a3 3 0 0 1 6 0v3" />
+        </>
+      )}
+    </svg>
+  );
+}
+
 const WEAPON_LIST = [
-  { slot: "1", name: "WIDOW-9", role: "SIDEARM", dmg: 82, rof: 42, ctl: 88 },
-  { slot: "2", name: "HORNET", role: "SMG", dmg: 38, rof: 92, ctl: 56 },
-  { slot: "3", name: "MAUL-12", role: "SHOTGUN", dmg: 96, rof: 18, ctl: 40 },
+  { slot: "1", name: "WIDOW-9", role: "SIDEARM", dmg: 82, rof: 42, ctl: 88, locked: false },
+  { slot: "2", name: "HORNET", role: "SMG", dmg: 38, rof: 92, ctl: 56, locked: true },
+  { slot: "3", name: "MAUL-12", role: "SHOTGUN", dmg: 96, rof: 18, ctl: 40, locked: true },
 ];
 
 const CONTROLS: [string, string][] = [
@@ -246,6 +355,8 @@ export default function App() {
 
   const inGame = ui.screen === "playing" || ui.screen === "paused";
   const hpLow = hud.hp <= 30;
+  const ownedPerkList: PerkDef[] = PERKS.filter((p) => (hud.ownedPerks[p.id] || 0) > 0);
+  const perkChoices: PerkDef[] = hud.perkChoices.map((id) => PERK_BY_ID[id]).filter(Boolean);
 
   return (
     <div className="fixed inset-0 bg-ink overflow-hidden font-hud text-bone" onClick={() => gameRef.current?.relockIfPlaying()}>
@@ -342,7 +453,7 @@ export default function App() {
                 </span>
               </div>
               <div className="mt-1.5">
-                <Bar v={hud.hp} max={100} cls={hpLow ? "bg-blood" : "bg-gradient-to-r from-ember to-amber"} pulse={hpLow} />
+                <Bar v={hud.hp} max={Math.max(100, hud.hp)} cls={hpLow ? "bg-blood" : "bg-gradient-to-r from-ember to-amber"} pulse={hpLow} />
               </div>
               <div className="mt-2.5 flex items-end justify-between">
                 <span className="text-[10px] font-semibold tracking-[0.35em] text-dim">FOCUS [RMB]</span>
@@ -351,9 +462,26 @@ export default function App() {
                 </span>
               </div>
               <div className="mt-1">
-                <Bar v={hud.focus} max={100} cls="bg-tide" />
+                <Bar v={hud.focus} max={Math.max(100, hud.focus)} cls="bg-tide" />
               </div>
             </div>
+            {ownedPerkList.length > 0 && (
+              <div className="hud-panel clip-panel mt-2 flex flex-wrap items-center gap-1.5 px-3 py-2">
+                <span className="mr-1 text-[9px] font-bold tracking-[0.3em] text-dim">UPGRADES</span>
+                {ownedPerkList.map((p) => (
+                  <span
+                    key={p.id}
+                    title={`${p.name}${hud.ownedPerks[p.id] > 1 ? ` ×${hud.ownedPerks[p.id]}` : ""} — ${p.desc}`}
+                    className={`flex items-center gap-1 border px-1.5 py-0.5 ${PERK_TAG_CLS[p.tag]}`}
+                  >
+                    <PerkIcon icon={p.icon} className="h-3.5 w-3.5" />
+                    {hud.ownedPerks[p.id] > 1 && (
+                      <span className="text-[10px] font-bold tabular-nums">×{hud.ownedPerks[p.id]}</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* bottom-right: weapon */}
@@ -362,16 +490,25 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <span className="font-display text-xl text-amber">{hud.weaponName}</span>
                 <div className="flex gap-1">
-                  {[0, 1, 2].map((i) => (
-                    <span
-                      key={i}
-                      className={`clip-tag px-2 py-0.5 text-[11px] font-bold tracking-wider ${
-                        i === hud.slot ? "bg-amber text-ink" : "bg-ink text-dim border border-line"
-                      }`}
-                    >
-                      {i + 1}
-                    </span>
-                  ))}
+                  {[0, 1, 2].map((i) =>
+                    hud.unlocked[i] ? (
+                      <span
+                        key={i}
+                        className={`clip-tag px-2 py-0.5 text-[11px] font-bold tracking-wider ${
+                          i === hud.slot ? "bg-amber text-ink" : "bg-ink text-dim border border-line"
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                    ) : (
+                      <span key={i} title="Locked — acquire via wave upgrade" className="clip-tag border border-line/50 bg-ink px-2 py-0.5 text-[11px] font-bold tracking-wider text-dim/50">
+                        <svg viewBox="0 0 24 24" className="inline h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                          <rect x="5" y="11" width="14" height="9" />
+                          <path d="M8 11V8a4 4 0 0 1 8 0v3" />
+                        </svg>
+                      </span>
+                    )
+                  )}
                 </div>
               </div>
               <div className="mt-1 flex items-end justify-between">
@@ -394,6 +531,74 @@ export default function App() {
               <div className="mt-1.5">
                 <Bar v={hud.mag} max={hud.magSize} cls={hud.lowAmmo ? "bg-blood" : "bg-amber"} />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============ SUPPLY DROP / PERK SELECTION ============ */}
+      {ui.screen === "perk" && (
+        <div className="absolute inset-0 flex items-center justify-center scanlines" style={{ background: "radial-gradient(ellipse at 50% 30%, rgba(20,42,40,0.55), rgba(4,16,21,0.88) 78%)" }}>
+          <div className="w-[880px] max-w-[95vw]">
+            <div className="mb-4 flex items-end justify-between rise-in">
+              <div>
+                <div className="flex items-center gap-2.5">
+                  <div className="hazard-stripes clip-tag px-3 py-1 text-[11px] font-bold tracking-[0.25em] text-ink">SUPPLY DROP</div>
+                  <span className="font-hud text-xs font-bold tracking-[0.3em] text-tide">WAVE {hud.wave} CLEARED</span>
+                </div>
+                <div className="mt-1.5 font-display text-4xl md:text-5xl text-bone" style={{ textShadow: "0 0 30px rgba(255,176,58,0.25)" }}>
+                  CHOOSE YOUR EDGE
+                </div>
+              </div>
+              <div className="hidden md:block text-right font-hud text-[11px] font-semibold tracking-[0.25em] text-dim">
+                AMMO RESTOCKED · WOUND PATCHED
+                <br />
+                NEXT WAVE ON SELECTION
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {perkChoices.map((p, i) => (
+                <button
+                  key={p.id}
+                  onClick={() => gameRef.current?.choosePerk(i)}
+                  onMouseEnter={() => gameRef.current?.menuTick()}
+                  className={`hud-panel clip-panel group relative p-5 text-left transition-transform duration-150 hover:-translate-y-1.5 panel-in-r panel-d${i + 1}`}
+                  style={{ borderColor: "rgba(255,176,58,0.28)" }}
+                >
+                  <div className="absolute right-3 top-3 clip-tag bg-ink px-2 py-0.5 font-display text-sm text-dim border border-line">
+                    {i + 1}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`flex h-12 w-12 items-center justify-center border ${PERK_TAG_CLS[p.tag]} bg-ink/70`}>
+                      <PerkIcon icon={p.icon} className="h-7 w-7" />
+                    </span>
+                    <div>
+                      <div className={`font-hud text-[10px] font-bold tracking-[0.3em] ${PERK_TAG_CLS[p.tag].split(" ")[1]}`}>{p.tag}</div>
+                      <div className="font-display text-2xl leading-tight text-bone group-hover:text-amber transition-colors">{p.name}</div>
+                    </div>
+                  </div>
+                  <p className="mt-3 font-hud text-[13px] font-semibold leading-relaxed text-dim">{p.desc}</p>
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="flex gap-1">
+                      {Array.from({ length: p.maxStacks }).map((_, s) => (
+                        <span
+                          key={s}
+                          className={`h-1.5 w-4 ${s < (hud.ownedPerks[p.id] || 0) ? "bg-amber" : "bg-line/60"}`}
+                        />
+                      ))}
+                    </div>
+                    <span className="font-hud text-[10px] font-bold tracking-[0.25em] text-dim group-hover:text-amber transition-colors">
+                      {(hud.ownedPerks[p.id] || 0) > 0 ? `OWNED ×${hud.ownedPerks[p.id]}` : "NEW"}
+                    </span>
+                  </div>
+                  <div className={`pointer-events-none absolute inset-x-0 bottom-0 h-0.5 ${PERK_TAG_CLS[p.tag].split(" ")[0].replace("border-", "bg-")} opacity-0 group-hover:opacity-100 transition-opacity`} />
+                </button>
+              ))}
+            </div>
+
+            <div className="fade-late mt-4 text-center font-hud text-[11px] font-semibold tracking-[0.3em] text-dim/80">
+              PRESS <span className="text-amber">1 · 2 · 3</span> OR CLICK — THE SEA IS ALREADY SENDING MORE
             </div>
           </div>
         </div>
@@ -474,16 +679,25 @@ export default function App() {
               </div>
               <div className="space-y-3">
                 {WEAPON_LIST.map((w) => (
-                  <div key={w.slot} className="border border-line/60 bg-ink/50 px-3 py-2">
+                  <div key={w.slot} className={`relative border border-line/60 bg-ink/50 px-3 py-2 ${w.locked ? "opacity-55" : ""}`}>
                     <div className="flex items-baseline justify-between">
                       <span className="font-display text-base text-bone">{w.name}</span>
-                      <span className="text-[10px] font-bold tracking-[0.3em] text-dim">{w.role}</span>
+                      {w.locked ? (
+                        <span className="flex items-center gap-1 text-[10px] font-bold tracking-[0.25em] text-dim">
+                          <PerkIcon icon="lock" className="h-3 w-3" /> LOCKED
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold tracking-[0.3em] text-dim">{w.role}</span>
+                      )}
                     </div>
                     <div className="mt-1.5 space-y-1">
                       <StatBar label="DMG" v={w.dmg} />
                       <StatBar label="ROF" v={w.rof} />
                       <StatBar label="CTL" v={w.ctl} />
                     </div>
+                    {w.locked && (
+                      <div className="mt-1 text-[10px] font-semibold tracking-[0.2em] text-tide/80">ACQUIRE VIA SUPPLY DROP</div>
+                    )}
                   </div>
                 ))}
               </div>

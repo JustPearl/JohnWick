@@ -1214,6 +1214,10 @@ export class Game {
       if (e.code === "Digit3") this.switchTo(2);
       if (e.code === "KeyR") this.startReload();
       if (e.code === "KeyP") this.pause();
+    } else if (this.screen === "perk") {
+      if (e.code === "Digit1") this.choosePerk(0);
+      if (e.code === "Digit2") this.choosePerk(1);
+      if (e.code === "Digit3") this.choosePerk(2);
     } else if (this.screen === "paused" && e.code === "KeyP") {
       this.resume();
     }
@@ -1241,7 +1245,14 @@ export class Game {
     if (this.screen !== "playing") return;
     e.preventDefault();
     const d = e.deltaY > 0 ? 1 : -1;
-    this.switchTo((this.slot + d + 3) % 3);
+    // step to the nearest unlocked slot in the scroll direction
+    for (let step = 1; step <= this.weapons.length; step++) {
+      const idx = (this.slot + d * step + this.weapons.length * step) % this.weapons.length;
+      if (this.weaponUnlocked[idx]) {
+        this.switchTo(idx);
+        return;
+      }
+    }
   }
 
   private onLockChange() {

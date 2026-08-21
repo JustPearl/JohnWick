@@ -13,6 +13,9 @@ import {
   KILL,
   WAVES,
   ENEMY,
+  BARREL,
+  HELI,
+  ILLUM,
   type WeaponDef,
   type EnemyType,
   type Enemy,
@@ -114,6 +117,22 @@ export class Game {
   private hitstop = 0;
   private fovPunch = 0;
   private decals: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; life: number; active: boolean }[] = [];
+  private booms: { pos: THREE.Vector3; t: number }[] = [];
+  private heli!: THREE.Group;
+  private heliRotor!: THREE.Object3D;
+  private heliTailRotor!: THREE.Object3D;
+  private heliSpot!: THREE.SpotLight;
+  private heliSpotTarget = new THREE.Object3D();
+  private heliCone!: THREE.Mesh;
+  private heliActive = false;
+  private heliT = 0;
+  private heliA0 = 0;
+  private heliCool: number = HELI.FIRST;
+  private heliDrops: number[] = [];
+  private illums: { mesh: THREE.Mesh; light: THREE.PointLight; t: number; active: boolean; a: THREE.Vector3; b: THREE.Vector3 }[] = [];
+  private illumT = 9;
+  private fogBase = new THREE.Color();
+  private sprinting = false;
   private vmLift = 0;
   private vmRecoil = 0;
   private muzzleT = 0;
@@ -195,6 +214,8 @@ export class Game {
     this.scene.add(this.camera);
 
     this.world = buildWorld(this.scene);
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) this.fogBase.copy(fog.color);
     this.scene.add(this.enemyRoot, this.corpseRoot);
 
     this.buildViewModels();
@@ -310,6 +331,81 @@ export class Game {
       mesh.visible = false;
       this.scene.add(mesh);
       this.decals.push({ mesh, mat, life: 0, active: false });
+    }
+
+    /* ---- gunship ---- */
+    const hull = new THREE.MeshToonMaterial({ color: 0x2e3430 });
+    const hullDark = new THREE.MeshToonMaterial({ color: 0x1c211e });
+    const glass = new THREE.MeshToonMaterial({ color: 0x9fd8d0, emissive: 0x2a4a48, emissiveIntensity: 0.4 });
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.3, 3.6), hull);
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.9, 1.2), glass);
+    nose.position.set(0, -0.15, 2.2);
+    const canopy = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.5, 1.4), glass);
+    canopy.position.set(0, 0.55, 1.1);
+    const boomT = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.5, 3.4), hullDark);
+    boomT.position.set(0, 0.2, -3.2);
+    const finV = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.5, 0.9), hull);
+    finV.position.set(0, 1, -4.7);
+    const finH = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.12, 0.7), hull);
+    finH.position.set(0, 0.45, -4.7);
+    const rotor = new THREE.Group();
+    const disc = new THREE.Mesh(
+      new THREE.CylinderGeometry(3.6, 3.6, 0.05, 20),
+      new THREE.MeshBasicMaterial({ color: 0x88929a, transparent: true, opacity: 0.28, depthWrite: false })
+    );
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.04, 0.22), hullDark);
+    const blade2 = blade.clone();
+    blade2.rotation.y = Math.PI / 2;
+    rotor.add(disc, blade, blade2);
+    rotor.position.y = 1.05;
+    const tailRotor = new THREE.Group();
+    const tDisc = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.75, 0.75, 0.04, 12),
+      new THREE.MeshBasicMaterial({ color: 0x88929a, transparent: true, opacity: 0.3, depthWrite: false })
+    );
+    tDisc.rotation.z = Math.PI / 2;
+    tailRotor.add(tDisc);
+    tailRotor.position.set(0.2, 1, -4.7);
+    for (const sx of [-0.65, 0.65]) {
+      const skid = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.09, 3.4), hullDark);
+      skid.position.set(sx, -1.05, 0.2);
+      g.add(skid);
+      for (const sz of [-0.7, 0.9]) {
+        const strut = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.55, 0.07), hullDark);
+        strut.position.set(sx, -0.8, sz);
+        g.add(strut);
+      }
+    }
+    const spot = new THREE.SpotLight(0xfff0d0, 0, 120, 0.4, 0.55, 1.2);
+    spot.position.set(0, -0.5, 1.6);
+    const cone = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.25, 5.5, 26, 16, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0xfff0d0, transparent: true, opacity: 0.07, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+    );
+    cone.position.set(0, -14, 1.6);
+    this.scene.add(this.heliSpotTarget);
+    spot.target = this.heliSpotTarget;
+    g.add(body, nose, canopy, boomT, finV, finH, rotor, tailRotor, spot, cone);
+    g.visible = false;
+    this.scene.add(g);
+    this.heli = g;
+    this.heliRotor = rotor;
+    this.heliTailRotor = tailRotor;
+    this.heliSpot = spot;
+    this.heliCone = cone;
+
+    /* ---- illumination flares ---- */
+    for (let i = 0; i < 2; i++) {
+      const m = new THREE.Mesh(
+        new THREE.SphereGeometry(1.1, 10, 10),
+        new THREE.MeshBasicMaterial({ color: PAL.ILLUM, transparent: true, opacity: 0 })
+      );
+      const l = new THREE.PointLight(PAL.ILLUM, 0, 320, 1);
+      m.add(l);
+      m.visible = false;
+      this.scene.add(m);
+      this.illums.push({ mesh: m, light: l, t: 0, active: false, a: new THREE.Vector3(), b: new THREE.Vector3() });
     }
   }
 
@@ -676,13 +772,19 @@ export class Game {
         end = eH.point;
       } else if (sHits.length) {
         end = sHits[0].point;
-        this.burst(sHits[0].point, 0xffc46a, 5, 2.6, 0.32, 8, 0.05);
+        const bid = sHits[0].object.userData.bid as number | undefined;
+        if (bid !== undefined) this.damageBarrel(bid, w.def.dmg);
+        this.burst(sHits[0].point, PAL.SPARK, 7, 3.4, 0.34, 9, 0.045);
+        this.burst(sHits[0].point, PAL.SMOKE, 2, 0.8, 0.5, -1.5, 0.07);
       } else {
         end = this.camera.position.clone().addScaledVector(dir, 160);
       }
       this.spawnTracer(muzzleW, end);
     }
     if (anyHit) this.shotsHit++;
+
+    // muzzle smoke
+    this.burst(muzzleW.clone(), PAL.SMOKE, 2, 0.45, 0.7, -1.1, 0.085);
 
     // shell
     const sh = this.shells.find((x) => !x.active);
@@ -1260,6 +1362,7 @@ export class Game {
     if (moveDir.lengthSq() > 0) moveDir.normalize();
 
     const sprinting = this.keys.has("ShiftLeft") && mz > 0 && this.sliding <= 0;
+    this.sprinting = sprinting && moveDir.lengthSq() > 0;
     let speed = sprinting ? PLAYER.SPRINT : PLAYER.WALK;
     if (this.focusActive) speed *= PLAYER.FOCUS_SPEED_MULT;
 
@@ -1296,7 +1399,11 @@ export class Game {
     }
     this.pos.addScaledVector(this.vel, dt);
     if (this.pos.y <= DECK_Y) {
-      if (!this.onGround && this.vel.y < PLAYER.LAND_SFX_FALL) this.sfx.land();
+      if (!this.onGround && this.vel.y < PLAYER.LAND_SFX_FALL) {
+        this.sfx.land();
+        this.pitchKick -= PLAYER.LAND_DIP * Math.min(1.6, -this.vel.y / 8);
+        this.shake = Math.min(1, this.shake + 0.08);
+      }
       this.pos.y = DECK_Y;
       this.vel.y = 0;
       this.onGround = true;
@@ -1328,7 +1435,10 @@ export class Game {
     );
     this.camera.rotation.set(this.pitch + this.pitchKick + Math.sin(this.bobPhase) * 0.006, this.yaw, this.rollKick);
     this.fovPunch *= 1 - Math.min(1, dt * 11);
-    const fovT = (this.focusActive ? FOCUS.FOV : FOCUS.FOV_NORMAL) - this.fovPunch * RECOIL.FOV_PUNCH_DEG;
+    const fovT =
+      (this.focusActive ? FOCUS.FOV : FOCUS.FOV_NORMAL) +
+      (this.sprinting && !this.focusActive ? PLAYER.SPRINT_FOV : 0) -
+      this.fovPunch * RECOIL.FOV_PUNCH_DEG;
     this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * 14);
     this.camera.updateProjectionMatrix();
 
@@ -1449,6 +1559,15 @@ export class Game {
     }
 
     this.stepFx(sdt, dt);
+    this.boomTick(sdt);
+    this.heliTick(sdt, dt);
+    this.illumTick(dt);
+
+    // alarm beacon pulses while hostiles are on the deck
+    const beacon = this.world.beacon;
+    const alarmed = this.waveState === "combat";
+    beacon.light.intensity = alarmed ? 30 * (0.55 + 0.45 * Math.sin(this.time * 7)) : 0;
+    beacon.mat.emissiveIntensity = alarmed ? 1.6 + Math.sin(this.time * 7) * 0.8 : 0.15;
 
     this.waveTick(sdt);
     this.comboT -= dt;
@@ -1503,6 +1622,184 @@ export class Game {
     const s = 0.55 + Math.random() * 0.75;
     d.mesh.scale.set(s * (0.8 + Math.random() * 0.5), s, 1);
     d.mat.opacity = 0.8;
+  }
+
+  /* ================= fuel drums ================= */
+  private damageBarrel(bid: number, dmg: number) {
+    const b = this.world.barrels[bid];
+    if (!b || !b.alive) return;
+    b.hp -= dmg;
+    if (b.hp > 0) {
+      this.burst(b.pos.clone().setY(DECK_Y + 1), PAL.SPARK, 4, 3, 0.3, 8, 0.05);
+      return;
+    }
+    b.alive = false;
+    b.group.visible = false;
+    this.booms.push({ pos: b.pos.clone(), t: 0 });
+  }
+
+  private explodeBarrel(at: THREE.Vector3) {
+    this.sfx.boom();
+    this.shake = Math.min(1.6, this.shake + 1.15);
+    this.fovPunch = 1;
+    this.burst(at.clone().setY(DECK_Y + 0.8), PAL.EMBER, 26, 8, 0.7, 7, 0.11);
+    this.burst(at.clone().setY(DECK_Y + 1), PAL.SPARK, 18, 10, 0.5, 9, 0.05);
+    this.burst(at.clone().setY(DECK_Y + 1.4), PAL.SMOKE_DARK, 16, 3.4, 1.7, -2.4, 0.24);
+    // scorch mark
+    let d = this.decals.find((x) => !x.active);
+    if (!d) d = this.decals.reduce((a, c) => (a.life < c.life ? a : c));
+    d.active = true;
+    d.life = 20;
+    d.mesh.visible = true;
+    d.mesh.position.set(at.x, DECK_Y + 0.04, at.z);
+    d.mesh.rotation.z = Math.random() * Math.PI;
+    const s = 1.6 + Math.random() * 0.8;
+    d.mesh.scale.set(s, s, 1);
+    d.mat.color.setHex(PAL.SCORCH);
+    d.mat.opacity = 0.85;
+    // radial damage
+    for (const e of this.enemies) {
+      if (e.state === "dying") continue;
+      const dist = e.group.position.distanceTo(at);
+      if (dist < BARREL.RADIUS) {
+        const dmg = BARREL.DMG * (1 - dist / BARREL.RADIUS);
+        this.hitEnemy(e, dmg, false, e.group.position.clone().setY(DECK_Y + 1.2));
+      }
+    }
+    const pd = this.pos.distanceTo(at);
+    if (pd < BARREL.PLAYER_RADIUS) this.damagePlayer(BARREL.PLAYER_DMG * (1 - pd / BARREL.PLAYER_RADIUS));
+    else if (pd < BARREL.RADIUS) this.shake = Math.min(1.6, this.shake + 0.4);
+    this.popup(at.clone().setY(DECK_Y + 2.6), "FUEL DRUM", "text-ember");
+    // chain reaction
+    for (const ob of this.world.barrels) {
+      if (!ob.alive) continue;
+      if (ob.pos.distanceTo(at) < BARREL.CHAIN_RADIUS) this.booms.push({ pos: ob.pos.clone(), t: BARREL.CHAIN_DELAY });
+    }
+  }
+
+  private boomTick(sdt: number) {
+    for (let i = this.booms.length - 1; i >= 0; i--) {
+      this.booms[i].t -= sdt;
+      if (this.booms[i].t <= 0) {
+        const p = this.booms[i].pos;
+        this.booms.splice(i, 1);
+        this.explodeBarrel(p);
+      }
+    }
+  }
+
+  /* ================= gunship ================= */
+  private startHeli() {
+    this.heliActive = true;
+    this.heliT = 0;
+    this.heliA0 = Math.random() * Math.PI * 2;
+    this.heliDrops = [...HELI.DROPS];
+    this.heli.visible = true;
+    this.sfx.heliStart();
+    this.feed("SENSOR ▸ GUNSHIP INBOUND");
+  }
+
+  private heliPos(t: number, out: THREE.Vector3) {
+    const R = HELI.ORBIT_R;
+    const H = HELI.HEIGHT;
+    if (t < 0.2) {
+      const k = t / 0.2;
+      const a = this.heliA0;
+      out.set(Math.cos(a) * (150 - 92 * k), 46 - 16 * k, Math.sin(a) * (150 - 92 * k));
+    } else if (t < 0.85) {
+      const k = (t - 0.2) / 0.65;
+      const a = this.heliA0 + k * Math.PI * 1.6;
+      out.set(Math.cos(a) * R, H + Math.sin(k * Math.PI * 3) * 2.5, Math.sin(a) * R);
+    } else {
+      const k = (t - 0.85) / 0.15;
+      const a = this.heliA0 + Math.PI * 1.6;
+      out.set(Math.cos(a) * (R + 100 * k), H + 26 * k, Math.sin(a) * (R + 100 * k));
+    }
+    return out;
+  }
+
+  private heliTick(sdt: number, dt: number) {
+    this.heliRotor.rotation.y += dt * 42;
+    this.heliTailRotor.rotation.x += dt * 60;
+    if (!this.heliActive) {
+      if (this.waveState === "combat") {
+        this.heliCool -= sdt;
+        if (this.heliCool <= 0) this.startHeli();
+      }
+      return;
+    }
+    this.heliT += sdt / HELI.DUR;
+    const t = this.heliT;
+    const p = this.heliPos(Math.min(t, 1), new THREE.Vector3());
+    const ahead = this.heliPos(Math.min(t + 0.012, 1), new THREE.Vector3());
+    this.heli.position.copy(p);
+    this.heli.lookAt(ahead);
+    this.heli.rotation.z += Math.sin(this.time * 1.7) * 0.05;
+    // searchlight sweeps the deck under the gunship
+    this.heliSpotTarget.position.set(p.x * 0.35 + Math.sin(this.time * 0.9) * 12, DECK_Y, p.z * 0.35 + Math.cos(this.time * 0.7) * 12);
+    const overRig = t > 0.2 && t < 0.85;
+    this.heliSpot.intensity = overRig ? 260 : 0;
+    (this.heliCone.material as THREE.MeshBasicMaterial).opacity = overRig ? 0.07 : 0;
+    // fast-rope drops while orbiting
+    if (overRig && this.heliDrops.length && t >= this.heliDrops[0]) {
+      this.heliDrops.shift();
+      const types: EnemyType[] = ["thug", "rusher"];
+      const en = this.makeEnemy(types[Math.floor(Math.random() * types.length)], this.pickSpawn());
+      if (en) {
+        this.popup(en.group.position.clone().setY(DECK_Y + 2.4), "FAST-ROPE DROP", "text-tide");
+        this.feed("GUNSHIP ▸ DROP TEAM ON DECK");
+      }
+    }
+    if (t >= 1) {
+      this.heliActive = false;
+      this.heli.visible = false;
+      this.heliSpot.intensity = 0;
+      this.heliCool = HELI.EVERY * (0.8 + Math.random() * 0.4);
+      this.sfx.heliStop();
+    }
+  }
+
+  /* ================= illumination flares ================= */
+  private launchIllum() {
+    const il = this.illums.find((x) => !x.active);
+    if (!il) return;
+    const a = Math.random() * Math.PI * 2;
+    il.a.set(Math.cos(a) * 130, 24, Math.sin(a) * 130);
+    il.b.set(Math.cos(a + Math.PI) * 130, 20, Math.sin(a + Math.PI) * 130);
+    il.t = 0;
+    il.active = true;
+    il.mesh.visible = true;
+  }
+
+  private illumTick(dt: number) {
+    this.illumT -= dt;
+    if (this.illumT <= 0) {
+      this.illumT = ILLUM.MIN + Math.random() * (ILLUM.MAX - ILLUM.MIN);
+      this.launchIllum();
+    }
+    let glow = 0;
+    for (const il of this.illums) {
+      if (!il.active) continue;
+      il.t += dt / ILLUM.DUR;
+      if (il.t >= 1) {
+        il.active = false;
+        il.mesh.visible = false;
+        il.light.intensity = 0;
+        continue;
+      }
+      const k = il.t;
+      const arc = Math.sin(k * Math.PI);
+      il.mesh.position.lerpVectors(il.a, il.b, k);
+      il.mesh.position.y += arc * ILLUM.HEIGHT;
+      (il.mesh.material as THREE.MeshBasicMaterial).opacity = 0.35 + arc * 0.65;
+      il.light.intensity = 900 * arc;
+      glow = Math.max(glow, arc);
+      if (Math.random() < dt * 26) {
+        this.burst(il.mesh.position.clone(), 0xffe2b0, 1, 0.6, 0.9, 1.4, 0.12);
+      }
+    }
+    const fog = this.scene.fog as THREE.Fog | null;
+    if (fog) fog.color.copy(this.fogBase).lerp(new THREE.Color(0x6a4a38), glow * 0.55);
   }
 
   private ambientFx(dt: number) {

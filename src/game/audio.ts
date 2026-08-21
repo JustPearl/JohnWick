@@ -238,7 +238,61 @@ export class SFX {
     this.ambientNodes.push(src, lfo, hum);
   }
 
+  boom() {
+    this.tone("sine", 120, 26, 0.9, 0.85);
+    this.tone("square", 70, 22, 0.5, 0.3);
+    this.noise(1.15, 0.7, "lowpass", 900, 55);
+    this.noise(0.22, 0.35, "highpass", 2600, 500);
+  }
+
+  private heliNodes: AudioNode[] = [];
+  private heliGain: GainNode | null = null;
+
+  heliStart() {
+    if (!this.ok || this.heliGain) return;
+    const c = this.ctx!;
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, c.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.14, c.currentTime + 1.6);
+    const f = c.createBiquadFilter();
+    f.type = "lowpass";
+    f.frequency.value = 320;
+    const o1 = c.createOscillator();
+    o1.type = "sawtooth";
+    o1.frequency.value = 52;
+    const o2 = c.createOscillator();
+    o2.type = "sawtooth";
+    o2.frequency.value = 55.5;
+    // rotor throb
+    const lfo = c.createOscillator();
+    lfo.frequency.value = 13.5;
+    const lfoG = c.createGain();
+    lfoG.gain.value = 0.05;
+    lfo.connect(lfoG).connect(g.gain);
+    o1.connect(f);
+    o2.connect(f);
+    f.connect(g).connect(this.master!);
+    o1.start();
+    o2.start();
+    lfo.start();
+    this.heliNodes = [o1, o2, lfo];
+    this.heliGain = g;
+  }
+
+  heliStop() {
+    if (!this.ok || !this.heliGain) return;
+    const c = this.ctx!;
+    this.heliGain.gain.cancelScheduledValues(c.currentTime);
+    this.heliGain.gain.setValueAtTime(Math.max(0.0002, this.heliGain.gain.value), c.currentTime);
+    this.heliGain.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + 1.4);
+    const nodes = this.heliNodes;
+    setTimeout(() => nodes.forEach((n) => (n as OscillatorNode).stop?.()), 1600);
+    this.heliNodes = [];
+    this.heliGain = null;
+  }
+
   dispose() {
+    this.heliStop();
     this.ambientNodes.forEach((n) => {
       try {
         (n as any).stop?.();

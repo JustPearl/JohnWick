@@ -21,6 +21,18 @@ export interface AABB {
   z2: number;
 }
 
+export interface BarrelRef {
+  group: THREE.Group;
+  body: THREE.Mesh;
+  pos: THREE.Vector3;
+  hp: number;
+  alive: boolean;
+}
+export interface BeaconRef {
+  pivot: THREE.Group;
+  light: THREE.PointLight;
+  mat: THREE.MeshToonMaterial;
+}
 export interface WorldRefs {
   group: THREE.Group;
   colliders: AABB[];
@@ -29,6 +41,8 @@ export interface WorldRefs {
   playerStart: THREE.Vector3;
   flareTip: THREE.Vector3;
   boundaryRects: AABB[];
+  barrels: BarrelRef[];
+  beacon: BeaconRef;
   update: (t: number, dt: number) => void;
 }
 
@@ -385,6 +399,22 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const derGroup = new THREE.Group();
   derGroup.position.set(derX, DECK_Y, derZ);
   world.add(derGroup);
+  // rotating alarm beacon on the crown
+  const beaconPivot = new THREE.Group();
+  beaconPivot.position.set(derX, DECK_Y + derH + 0.9, derZ);
+  const beaconMat = toon(0xff2a2a, 0xff2a2a, 0.15);
+  for (const side of [-1, 1]) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.22, 0.14), beaconMat);
+    lamp.position.x = side * 0.24;
+    lamp.rotation.y = side > 0 ? 0 : Math.PI;
+    beaconPivot.add(lamp);
+  }
+  const beaconMast = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.9, 6), toon(0x22262a));
+  beaconMast.position.set(derX, DECK_Y + derH + 0.45, derZ);
+  const beaconLight = new THREE.PointLight(0xff2a2a, 0, 60, 1.6);
+  beaconLight.position.set(0, 0.1, 0.4);
+  beaconPivot.add(beaconLight);
+  world.add(beaconPivot, beaconMast);
   const corner = (cx: number, cz: number) => {
     // legs lean inward so the tower is wide-based and tapers to the crown
     const lean = 0.1;
@@ -683,24 +713,35 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   /* ---------------- deck clutter ---------------- */
   const barrelCols = [0x8c3a24, 0x4f5a33, 0x2f4250, 0x77713f];
   const ribMat = toon(0x17181a);
-  const barrelAt: [number, number, number, boolean][] = [
-    [-21.5, -12.8, 0, false],
-    [-20.4, -13.9, 1, false],
-    [-21.9, -14.4, 2, true],
-    [20.5, 13.4, 1, false],
-    [21.7, 14.3, 3, false],
-    [19.4, 14.7, 0, true],
-    [22, -13, 2, false],
-    [-6.5, 14.2, 3, false],
+  const boomMat = toon(0xb3261e);
+  const bandMat = toon(0xd8d3c4);
+  // [x, z, colorIndex, tipped, explosive]
+  const barrelAt: [number, number, number, boolean, boolean][] = [
+    [-21.5, -12.8, 0, false, true],
+    [-20.4, -13.9, 1, false, true],
+    [-21.9, -14.4, 2, true, false],
+    [20.5, 13.4, 1, false, true],
+    [21.7, 14.3, 3, false, true],
+    [19.4, 14.7, 0, true, false],
+    [22, -13, 2, false, false],
+    [-6.5, 14.2, 3, false, false],
   ];
-  for (const [bx, bz, ci, tipped] of barrelAt) {
+  const barrels: BarrelRef[] = [];
+  for (const [bx, bz, ci, tipped, explosive] of barrelAt) {
     const grp = new THREE.Group();
-    grp.add(new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.15, 10), toon(barrelCols[ci])));
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.15, 10), explosive ? boomMat : toon(barrelCols[ci]));
+    grp.add(body);
     const r1 = new THREE.Mesh(new THREE.CylinderGeometry(0.585, 0.585, 0.07, 10), ribMat);
     r1.position.y = 0.3;
     const r2 = r1.clone();
     r2.position.y = -0.3;
     grp.add(r1, r2);
+    if (explosive) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.565, 0.565, 0.16, 10), bandMat);
+      grp.add(band);
+      body.userData.bid = barrels.length;
+      barrels.push({ group: grp, body, pos: new THREE.Vector3(bx, DECK_Y + 0.6, bz), hp: 1, alive: true });
+    }
     if (tipped) {
       grp.rotation.z = Math.PI / 2;
       grp.rotation.y = Math.random() * Math.PI;
@@ -711,6 +752,7 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     world.add(grp);
     colliders.push({ x1: bx - 0.62, z1: bz - 0.62, x2: bx + 0.62, z2: bz + 0.62 });
   }
+  for (const b of barrels) solids.push(b.body);
   for (const [rx3, rz] of [[-20.8, 9.2], [8.5, -13]] as const) {
     const reel = new THREE.Group();
     const discGeo = new THREE.CylinderGeometry(1.15, 1.15, 0.14, 14);
@@ -809,6 +851,7 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     workLight.intensity = 22 * (0.9 + Math.sin(t * 3.7) * 0.1) * wk;
     (workGlow.material as THREE.SpriteMaterial).opacity = 0.5 * wk;
     bulbPlane.visible = wk > 0.5;
+    beaconPivot.rotation.y = t * 2.4;
   };
 
   return {
@@ -819,6 +862,8 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     playerStart: new THREE.Vector3(2, DECK_Y, 5),
     flareTip,
     boundaryRects,
+    barrels,
+    beacon: { pivot: beaconPivot, light: beaconLight, mat: beaconMat },
     update: fullUpdate,
   };
 }

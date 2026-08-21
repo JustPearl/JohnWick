@@ -143,6 +143,34 @@ export const PLAYER = {
   WAVE_HEAL: 22,
   REGEN_RATE: 7.5,
   REGEN_DELAY: 5,
+  SPRINT_FOV: 3.2,
+  LAND_DIP: 0.014,
+} as const;
+
+export const BARREL = {
+  HP: 45,
+  RADIUS: 6.5,
+  DMG: 170,
+  PLAYER_DMG: 45,
+  PLAYER_RADIUS: 4.5,
+  CHAIN_RADIUS: 5.5,
+  CHAIN_DELAY: 0.18,
+} as const;
+
+export const HELI = {
+  FIRST: 24,
+  EVERY: 34,
+  DUR: 16,
+  ORBIT_R: 58,
+  HEIGHT: 30,
+  DROPS: [0.42, 0.62],
+} as const;
+
+export const ILLUM = {
+  MIN: 16,
+  MAX: 28,
+  DUR: 6,
+  HEIGHT: 72,
 } as const;
 
 /* ================= focus (bullet time) ================= */
@@ -237,4 +265,8 @@ export const PAL = {
   MUZZLE_FLASH: 0xffd98a,
   MUZZLE_LIGHT: 0xffb066,
   MED: 0xff5a6a,
+  SMOKE_DARK: 0x2a2e33,
+  SCORCH: 0x14161a,
+  ALARM: 0xff2a2a,
+  ILLUM: 0xfff0d0,
 } as const;

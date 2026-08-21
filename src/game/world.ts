@@ -44,6 +44,37 @@ export interface WorldRefs {
   barrels: BarrelRef[];
   beacon: BeaconRef;
   update: (t: number, dt: number) => void;
+  applyWeather: (w: BlendedWeather) => void;
+}
+
+/** A fully interpolated weather state, computed by the game each frame. */
+export interface BlendedWeather {
+  name: string;
+  skyTop: THREE.Color;
+  skyMid: THREE.Color;
+  skyHor: THREE.Color;
+  sunDir: THREE.Vector3;
+  sunColor: THREE.Color;
+  sunIntensity: number;
+  hemiSky: THREE.Color;
+  hemiGround: THREE.Color;
+  hemiIntensity: number;
+  keyColor: THREE.Color;
+  keyIntensity: number;
+  rimColor: THREE.Color;
+  rimIntensity: number;
+  fogColor: THREE.Color;
+  fogNear: number;
+  fogFar: number;
+  seaDeep: THREE.Color;
+  seaCrest: THREE.Color;
+  seaAmp: number;
+  clouds: number;
+  cloudTint: THREE.Color;
+  rain: number;
+  wind: number;
+  lightning: number;
+  flash: number;
 }
 
 const toon = (color: number, emissive = 0x000000, ei = 0) => {
@@ -70,6 +101,12 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     depthWrite: false,
     uniforms: {
       uSun: { value: new THREE.Vector3(-0.62, 0.12, -0.78).normalize() },
+      uTop: { value: new THREE.Color(0x06131b) },
+      uMid: { value: new THREE.Color(0x0e2930) },
+      uHor: { value: new THREE.Color(0x17333c) },
+      uSunColor: { value: new THREE.Color(0xff6a2a) },
+      uSunI: { value: 1 },
+      uFlash: { value: 0 },
     },
     vertexShader: `
       varying vec3 vDir;
@@ -80,18 +117,22 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     fragmentShader: `
       varying vec3 vDir;
       uniform vec3 uSun;
+      uniform vec3 uTop;
+      uniform vec3 uMid;
+      uniform vec3 uHor;
+      uniform vec3 uSunColor;
+      uniform float uSunI;
+      uniform float uFlash;
       void main(){
         float h = clamp(vDir.y, -0.2, 1.0);
-        vec3 top = vec3(0.024,0.075,0.105);
-        vec3 mid = vec3(0.055,0.16,0.19);
-        vec3 hor = vec3(0.09,0.20,0.235);
-        vec3 col = mix(hor, mid, smoothstep(0.0, 0.25, h));
-        col = mix(col, top, smoothstep(0.2, 0.85, h));
+        vec3 col = mix(uHor, uMid, smoothstep(0.0, 0.25, h));
+        col = mix(col, uTop, smoothstep(0.2, 0.85, h));
         float sun = pow(max(dot(vDir, uSun), 0.0), 6.0);
         float core = pow(max(dot(vDir, uSun), 0.0), 90.0);
-        col += vec3(1.0,0.42,0.16) * sun * 0.55;
-        col += vec3(1.0,0.72,0.38) * core * 1.4;
-        col += vec3(0.9,0.32,0.14) * exp(-abs(vDir.y+0.02)*14.0) * 0.35;
+        col += uSunColor * sun * 0.55 * uSunI;
+        col += (uSunColor * 0.6 + vec3(0.4)) * core * 1.4 * uSunI;
+        col += uSunColor * exp(-abs(vDir.y+0.02)*14.0) * 0.35 * uSunI;
+        col += vec3(0.85, 0.92, 1.0) * uFlash;
         gl_FragColor = vec4(col, 1.0);
       }`,
   });
@@ -104,9 +145,14 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
       uTime: { value: 0 },
       uFog: { value: new THREE.Color(0x16333c) },
       uSun: { value: new THREE.Vector3(-0.62, 0.12, -0.78).normalize() },
+      uSunColor: { value: new THREE.Color(0xff8a48) },
+      uDeep: { value: new THREE.Color(0x04171c) },
+      uCrest: { value: new THREE.Color(0x0d424d) },
+      uAmp: { value: 1.0 },
     },
     vertexShader: `
       uniform float uTime;
+      uniform float uAmp;
       varying vec3 vWorld;
       varying float vH;
       void main(){
@@ -114,8 +160,8 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
         float w = sin(p.x*0.14 + uTime*0.9)*0.55
                 + sin(p.y*0.19 + uTime*1.35)*0.4
                 + sin((p.x+p.y)*0.06 + uTime*0.55)*0.8;
-        p.z += w;
-        vH = w;
+        p.z += w * uAmp;
+        vH = w * uAmp;
         vec4 wp = modelMatrix * vec4(p,1.0);
         vWorld = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -125,14 +171,15 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
       varying float vH;
       uniform vec3 uFog;
       uniform vec3 uSun;
+      uniform vec3 uSunColor;
+      uniform vec3 uDeep;
+      uniform vec3 uCrest;
       void main(){
-        vec3 deep = vec3(0.016,0.09,0.11);
-        vec3 crest = vec3(0.05,0.26,0.30);
-        vec3 col = mix(deep, crest, smoothstep(-1.2, 1.6, vH));
+        vec3 col = mix(uDeep, uCrest, smoothstep(-1.2, 1.6, vH));
         vec3 toCam = normalize(cameraPosition - vWorld);
         vec3 n = normalize(vec3(0.0,1.0,0.0));
         float spec = pow(max(dot(reflect(-uSun, n), toCam), 0.0), 24.0);
-        col += vec3(1.0,0.5,0.22) * spec * 0.5;
+        col += uSunColor * spec * 0.5;
         float foam = smoothstep(1.15, 1.6, vH);
         col += vec3(0.55,0.62,0.6) * foam * 0.16;
         float d = distance(cameraPosition, vWorld);
@@ -274,6 +321,40 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const rim = new THREE.DirectionalLight(0x2fa08a, 0.4);
   rim.position.set(60, 40, 70);
   world.add(rim);
+  const stormLight = new THREE.PointLight(0xcfe4ff, 0, 900, 0.6);
+  stormLight.position.set(0, 180, 0);
+  world.add(stormLight);
+
+  /* ---------------- cloud deck ---------------- */
+  const cloudTex = canvasTex(256, (g, s) => {
+    g.clearRect(0, 0, s, s);
+    for (let i = 0; i < 26; i++) {
+      const x = Math.random() * s, y = s * 0.3 + Math.random() * s * 0.4;
+      const r = 26 + Math.random() * 60;
+      const rg = g.createRadialGradient(x, y, 0, x, y, r);
+      rg.addColorStop(0, "rgba(255,255,255,0.5)");
+      rg.addColorStop(0.6, "rgba(255,255,255,0.22)");
+      rg.addColorStop(1, "rgba(255,255,255,0)");
+      g.fillStyle = rg;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+  });
+  const cloudPlanes: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; base: number; drift: number }[] = [];
+  for (let i = 0; i < 7; i++) {
+    const mat = new THREE.MeshBasicMaterial({
+      map: cloudTex,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(420 + Math.random() * 220, 260 + Math.random() * 140), mat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.rotation.z = Math.random() * Math.PI;
+    mesh.position.set((Math.random() - 0.5) * 900, 120 + Math.random() * 70, (Math.random() - 0.5) * 900);
+    world.add(mesh);
+    cloudPlanes.push({ mesh, mat, base: 0.55 + Math.random() * 0.45, drift: 0.6 + Math.random() * 0.8 });
+  }
 
   /* ---------------- main deck ---------------- */
   const deckTop = new THREE.MeshToonMaterial({ map: deckTex });
@@ -835,9 +916,49 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   sheen.position.set(31.5, 0.35, 17);
   world.add(sheen);
 
+  /* ---------------- weather ---------------- */
+  let windFactor = 0.2;
+  const applyWeather = (w: BlendedWeather) => {
+    const su = skyMat.uniforms;
+    (su.uTop.value as THREE.Color).copy(w.skyTop);
+    (su.uMid.value as THREE.Color).copy(w.skyMid);
+    (su.uHor.value as THREE.Color).copy(w.skyHor);
+    (su.uSunColor.value as THREE.Color).copy(w.sunColor);
+    (su.uSun.value as THREE.Vector3).copy(w.sunDir);
+    su.uSunI.value = w.sunIntensity;
+    su.uFlash.value = w.flash;
+    const eu = seaMat.uniforms;
+    (eu.uSun.value as THREE.Vector3).copy(w.sunDir);
+    (eu.uSunColor.value as THREE.Color).copy(w.sunColor);
+    (eu.uDeep.value as THREE.Color).copy(w.seaDeep);
+    (eu.uCrest.value as THREE.Color).copy(w.seaCrest);
+    eu.uAmp.value = w.seaAmp;
+    const fog = scene.fog as THREE.Fog;
+    fog.color.copy(w.fogColor);
+    fog.near = w.fogNear;
+    fog.far = w.fogFar;
+    (eu.uFog.value as THREE.Color).copy(w.fogColor);
+    hemi.color.copy(w.hemiSky);
+    hemi.groundColor.copy(w.hemiGround);
+    hemi.intensity = w.hemiIntensity;
+    sun.color.copy(w.keyColor);
+    sun.intensity = w.keyIntensity;
+    sun.position.copy(w.sunDir).multiplyScalar(120);
+    rim.color.copy(w.rimColor);
+    rim.intensity = w.rimIntensity;
+    stormLight.intensity = w.flash * 520;
+    for (const c of cloudPlanes) c.mat.opacity = w.clouds * c.base * 0.85;
+    for (const c of cloudPlanes) c.mat.color.copy(w.cloudTint);
+    windFactor = w.wind;
+  };
+
   const baseUpdate = update;
   const fullUpdate = (t: number, dt: number) => {
     baseUpdate(t, dt);
+    for (const c of cloudPlanes) {
+      c.mesh.position.x += (4 + 26 * windFactor) * c.drift * dt;
+      if (c.mesh.position.x > 750) c.mesh.position.x = -750;
+    }
     for (const p of puffs) {
       p.t = (p.t + dt * p.v) % 1;
       p.sp.position.set(22.5 + p.t * 2.4, DECK_Y + 1.6 + p.t * 6.5, -14.2 + Math.sin(p.t * 5) * 0.5);
@@ -865,5 +986,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     barrels,
     beacon: { pivot: beaconPivot, light: beaconLight, mat: beaconMat },
     update: fullUpdate,
+    applyWeather,
   };
 }

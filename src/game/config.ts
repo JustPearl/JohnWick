@@ -39,6 +39,7 @@ export interface HudData {
   enemiesLeft: number;
   waveState: "combat" | "interm";
   kills: number;
+  weather: string;
 }
 
 export interface GameOptions {
@@ -179,6 +180,152 @@ export const ILLUM = {
   MAX: 28,
   DUR: 6,
   HEIGHT: 72,
+} as const;
+
+/* ================= weather ================= */
+export interface WeatherProfile {
+  name: string;
+  skyTop: number;
+  skyMid: number;
+  skyHor: number;
+  sunDir: [number, number, number];
+  sunColor: number;
+  sunIntensity: number;
+  hemiSky: number;
+  hemiGround: number;
+  hemiIntensity: number;
+  keyColor: number;
+  keyIntensity: number;
+  rimColor: number;
+  rimIntensity: number;
+  fogColor: number;
+  fogNear: number;
+  fogFar: number;
+  seaDeep: number;
+  seaCrest: number;
+  seaAmp: number;
+  clouds: number;
+  cloudTint: number;
+  rain: number;
+  wind: number;
+  lightning: number; // strikes per minute
+}
+
+export const WEATHER: WeatherProfile[] = [
+  {
+    name: "GOLDEN LULL",
+    skyTop: 0x14455c,
+    skyMid: 0x2a6b74,
+    skyHor: 0x57968f,
+    sunDir: [-0.62, 0.22, -0.78],
+    sunColor: 0xffe8b0,
+    sunIntensity: 1.0,
+    hemiSky: 0x9fc8cf,
+    hemiGround: 0x2a3038,
+    hemiIntensity: 1.05,
+    keyColor: 0xfff0d0,
+    keyIntensity: 2.4,
+    rimColor: 0xbfe8e0,
+    rimIntensity: 0.5,
+    fogColor: 0x7fa8a4,
+    fogNear: 120,
+    fogFar: 360,
+    seaDeep: 0x0a3440,
+    seaCrest: 0x2a7a80,
+    seaAmp: 0.7,
+    clouds: 0.16,
+    cloudTint: 0xe8e4d8,
+    rain: 0,
+    wind: 0.2,
+    lightning: 0,
+  },
+  {
+    name: "LEADEN SKY",
+    skyTop: 0x25343a,
+    skyMid: 0x3a4a4e,
+    skyHor: 0x56676a,
+    sunDir: [-0.62, 0.3, -0.78],
+    sunColor: 0xd8d8c8,
+    sunIntensity: 0.22,
+    hemiSky: 0x8aa0a4,
+    hemiGround: 0x242a2e,
+    hemiIntensity: 0.85,
+    keyColor: 0xcfd8d2,
+    keyIntensity: 1.5,
+    rimColor: 0x7fa8a8,
+    rimIntensity: 0.42,
+    fogColor: 0x4a5d60,
+    fogNear: 85,
+    fogFar: 290,
+    seaDeep: 0x0d2e36,
+    seaCrest: 0x2c5f66,
+    seaAmp: 1.05,
+    clouds: 0.72,
+    cloudTint: 0x8a979a,
+    rain: 0.12,
+    wind: 0.45,
+    lightning: 0,
+  },
+  {
+    name: "NORTH SQUALL",
+    skyTop: 0x16282e,
+    skyMid: 0x22383e,
+    skyHor: 0x2f4a4e,
+    sunDir: [-0.5, 0.08, -0.85],
+    sunColor: 0xc8b890,
+    sunIntensity: 0.07,
+    hemiSky: 0x5f7a7e,
+    hemiGround: 0x1c2226,
+    hemiIntensity: 0.7,
+    keyColor: 0x9fb4b2,
+    keyIntensity: 0.85,
+    rimColor: 0x5f8a88,
+    rimIntensity: 0.36,
+    fogColor: 0x24383c,
+    fogNear: 55,
+    fogFar: 225,
+    seaDeep: 0x0a242c,
+    seaCrest: 0x25525a,
+    seaAmp: 1.75,
+    clouds: 0.9,
+    cloudTint: 0x4e5f63,
+    rain: 0.55,
+    wind: 0.8,
+    lightning: 2.4,
+  },
+  {
+    name: "SEVERE GALE",
+    skyTop: 0x0a1418,
+    skyMid: 0x101e22,
+    skyHor: 0x1a2b2e,
+    sunDir: [-0.5, 0.05, -0.85],
+    sunColor: 0x90a0a0,
+    sunIntensity: 0,
+    hemiSky: 0x3f5458,
+    hemiGround: 0x14181c,
+    hemiIntensity: 0.55,
+    keyColor: 0x6e8488,
+    keyIntensity: 0.5,
+    rimColor: 0x3f5f60,
+    rimIntensity: 0.3,
+    fogColor: 0x101d20,
+    fogNear: 34,
+    fogFar: 165,
+    seaDeep: 0x071a20,
+    seaCrest: 0x1e444c,
+    seaAmp: 2.7,
+    clouds: 1,
+    cloudTint: 0x2e3c40,
+    rain: 1,
+    wind: 1,
+    lightning: 7,
+  },
+];
+
+export const WEATHER_CYCLE = {
+  HOLD_MIN: 24,
+  HOLD_MAX: 44,
+  BLEND: 20, // seconds to transition between states
 } as const;
 
 /* ================= focus (bullet time) ================= */

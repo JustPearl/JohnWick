@@ -8,6 +8,8 @@ export class SFX {
   private noiseBuf: AudioBuffer | null = null;
   private ambientNodes: AudioNode[] = [];
   private ambientGain: GainNode | null = null;
+  private windGain: GainNode | null = null;
+  private rainGain: GainNode | null = null;
   muted = false;
 
   init() {
@@ -201,6 +203,28 @@ export class SFX {
     this.noise(1.2, 0.2, "lowpass", 800, 60);
   }
 
+  /** 0..1 — scales the wind/sea bed. */
+  setWind(v: number) {
+    if (!this.ok || !this.windGain || !this.ctx) return;
+    this.windGain.gain.setTargetAtTime(0.06 + v * 0.22, this.ctx.currentTime, 0.8);
+  }
+
+  /** 0..1 — rain intensity. */
+  setRain(v: number) {
+    if (!this.ok || !this.rainGain || !this.ctx) return;
+    this.rainGain.gain.setTargetAtTime(v * v * 0.24, this.ctx.currentTime, 0.6);
+  }
+
+  /** Distant thunder rumble. vol 0..1 */
+  thunder(vol: number, delay = 0) {
+    if (!this.ok) return;
+    const v = Math.max(0.05, vol);
+    this.tone("sine", 70, 28, 1.6 * v + 0.6, 0.5 * v, delay, "exp");
+    this.tone("sine", 110, 36, 1.2, 0.3 * v, delay + 0.12, "exp");
+    this.noise(1.4 * v + 0.5, 0.28 * v, "lowpass", 260, 40, delay);
+    this.noise(0.9, 0.12 * v, "lowpass", 900, 120, delay + 0.35);
+  }
+
   ambientStart() {
     if (!this.ok || this.ambientGain) return;
     const c = this.ctx!;
@@ -215,7 +239,7 @@ export class SFX {
     f.type = "lowpass";
     f.frequency.value = 420;
     const g = c.createGain();
-    g.gain.value = 0.16;
+    g.gain.value = 0.1;
     const lfo = c.createOscillator();
     lfo.frequency.value = 0.13;
     const lfoG = c.createGain();
@@ -224,6 +248,21 @@ export class SFX {
     src.connect(f).connect(g).connect(this.ambientGain);
     src.start();
     lfo.start();
+    this.windGain = g;
+    // rain bed (silent until weather calls setRain)
+    const rsrc = c.createBufferSource();
+    rsrc.buffer = this.noiseBuf;
+    rsrc.loop = true;
+    const rf = c.createBiquadFilter();
+    rf.type = "bandpass";
+    rf.frequency.value = 2400;
+    rf.Q.value = 0.5;
+    const rg = c.createGain();
+    rg.gain.value = 0;
+    rsrc.connect(rf).connect(rg).connect(this.ambientGain);
+    rsrc.start();
+    this.rainGain = rg;
+    this.ambientNodes.push(rsrc);
     // rig hum
     const hum = c.createOscillator();
     hum.type = "sawtooth";

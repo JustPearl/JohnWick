@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { buildWorld, DECK_Y, type WorldRefs } from "./world";
+import { buildWorld, DECK_Y, type WorldRefs, type BlendedWeather } from "./world";
 import { SFX } from "./audio";
 import { resolveColliders, clampToBounds } from "./physics";
 import { buildViewModels } from "./viewmodels";
@@ -17,6 +17,8 @@ import {
   BARREL,
   HELI,
   ILLUM,
+  WEATHER,
+  WEATHER_CYCLE,
   type WeaponDef,
   type EnemyType,
   type Enemy,
@@ -27,6 +29,42 @@ import {
 } from "./config";
 
 export type { Screen, GameStats, UiState, HudData, GameOptions } from "./config";
+
+/* ---------------- weather blending ---------------- */
+const WX_COL_KEYS = [
+  "skyTop", "skyMid", "skyHor", "sunColor", "hemiSky", "hemiGround",
+  "keyColor", "rimColor", "fogColor", "seaDeep", "seaCrest", "cloudTint",
+] as const;
+const WX_NUM_KEYS = [
+  "sunIntensity", "hemiIntensity", "keyIntensity", "rimIntensity",
+  "fogNear", "fogFar", "seaAmp", "clouds", "rain", "wind", "lightning",
+] as const;
+
+function makeWxState(p: (typeof WEATHER)[number]): BlendedWeather {
+  const s = {
+    name: p.name,
+    sunDir: new THREE.Vector3(...p.sunDir).normalize(),
+    flash: 0,
+  } as BlendedWeather;
+  for (const k of WX_COL_KEYS) (s as any)[k] = new THREE.Color((p as any)[k]);
+  for (const k of WX_NUM_KEYS) (s as any)[k] = (p as any)[k];
+  return s;
+}
+
+function copyWxState(dst: BlendedWeather, src: BlendedWeather) {
+  dst.name = src.name;
+  for (const k of WX_COL_KEYS) (dst as any)[k].copy((src as any)[k]);
+  for (const k of WX_NUM_KEYS) (dst as any)[k] = (src as any)[k];
+  dst.sunDir.copy(src.sunDir);
+}
+
+function blendWxState(a: BlendedWeather, b: BlendedWeather, out: BlendedWeather, t: number) {
+  const e = t * t * (3 - 2 * t);
+  out.name = b.name;
+  for (const k of WX_COL_KEYS) (out as any)[k].copy((a as any)[k]).lerp((b as any)[k], e);
+  for (const k of WX_NUM_KEYS) (out as any)[k] = (a as any)[k] + ((b as any)[k] - (a as any)[k]) * e;
+  out.sunDir.copy(a.sunDir).lerp(b.sunDir, e).normalize();
+}
 
 
 
@@ -135,7 +173,16 @@ export class Game {
   private heliDrops: number[] = [];
   private illums: { mesh: THREE.Mesh; light: THREE.PointLight; t: number; active: boolean; a: THREE.Vector3; b: THREE.Vector3 }[] = [];
   private illumT = 9;
-  private fogBase = new THREE.Color();
+  private wxA = makeWxState(WEATHER[1]);
+  private wxB = makeWxState(WEATHER[1]);
+  private wxS = makeWxState(WEATHER[1]);
+  private wxIndex = 1;
+  private wxT = 1;
+  private wxHold: number = 14;
+  private lightningT = 0;
+  private lightningTimer: number = 6;
+  private rain: { mesh: THREE.Mesh }[] = [];
+  private rainMat!: THREE.MeshBasicMaterial;
   private sprinting = false;
   private vmLift = 0;
   private vmRecoil = 0;
@@ -218,8 +265,6 @@ export class Game {
     this.scene.add(this.camera);
 
     this.world = buildWorld(this.scene);
-    const fog = this.scene.fog as THREE.Fog | null;
-    if (fog) this.fogBase.copy(fog.color);
     this.scene.add(this.enemyRoot, this.corpseRoot);
 
     this.buildViewModels();
@@ -410,6 +455,16 @@ export class Game {
       m.visible = false;
       this.scene.add(m);
       this.illums.push({ mesh: m, light: l, t: 0, active: false, a: new THREE.Vector3(), b: new THREE.Vector3() });
+    }
+
+    /* ---- rain ---- */
+    const rGeo = new THREE.BoxGeometry(0.014, 1.5, 0.014);
+    this.rainMat = new THREE.MeshBasicMaterial({ color: 0x9fc4c8, transparent: true, opacity: 0 });
+    for (let i = 0; i < 280; i++) {
+      const m = new THREE.Mesh(rGeo, this.rainMat);
+      m.visible = false;
+      this.scene.add(m);
+      this.rain.push({ mesh: m });
     }
   }
 
@@ -1375,6 +1430,7 @@ export class Game {
     this.time += dt;
 
     this.world.update(this.time, dt);
+    this.weatherTick(dt);
 
     if (this.screen === "menu") {
       const t = this.time * 0.09;
@@ -1901,7 +1957,79 @@ export class Game {
       }
     }
     const fog = this.scene.fog as THREE.Fog | null;
-    if (fog) fog.color.copy(this.fogBase).lerp(new THREE.Color(0x6a4a38), glow * 0.55);
+    if (fog) fog.color.lerp(new THREE.Color(0x6a4a38), glow * 0.35);
+  }
+
+  /* ================= weather ================= */
+  private weatherTick(dt: number) {
+    if (this.wxT < 1) {
+      this.wxT = Math.min(1, this.wxT + dt / WEATHER_CYCLE.BLEND);
+      blendWxState(this.wxA, this.wxB, this.wxS, this.wxT);
+    } else {
+      this.wxHold -= dt;
+      if (this.wxHold <= 0) this.wxRetarget();
+    }
+    // lightning
+    if (this.lightningT > 0) this.lightningT = Math.max(0, this.lightningT - dt * 2.6);
+    if (this.wxS.lightning > 0.01) {
+      this.lightningTimer -= dt;
+      if (this.lightningTimer <= 0) {
+        this.lightningTimer = (60 / this.wxS.lightning) * (0.4 + Math.random() * 1.2);
+        this.lightningT = 1;
+        const far = Math.random();
+        this.sfx.thunder(1 - far * 0.55, far * 1.6);
+      }
+    } else if (this.wxT >= 1) {
+      this.lightningTimer = Math.max(this.lightningTimer, 4);
+    }
+    this.wxS.flash =
+      this.lightningT > 0 ? this.lightningT * (0.5 + 0.5 * Math.abs(Math.sin(this.time * 43))) * 0.55 : 0;
+    this.world.applyWeather(this.wxS);
+    this.sfx.setRain(this.wxS.rain);
+    this.sfx.setWind(this.wxS.wind);
+    this.updateRain(dt);
+  }
+
+  private wxRetarget() {
+    copyWxState(this.wxA, this.wxS);
+    let idx = this.wxIndex;
+    while (idx === this.wxIndex) idx = Math.floor(Math.random() * WEATHER.length);
+    this.wxIndex = idx;
+    this.wxB = makeWxState(WEATHER[idx]);
+    this.wxT = 0;
+    this.wxHold = WEATHER_CYCLE.HOLD_MIN + Math.random() * (WEATHER_CYCLE.HOLD_MAX - WEATHER_CYCLE.HOLD_MIN);
+    if (this.screen === "playing") this.banner(`WEATHER ▸ ${WEATHER[idx].name}`, "text-tide");
+  }
+
+  private updateRain(dt: number) {
+    const inten = this.wxS.rain;
+    this.rainMat.opacity = inten * 0.3;
+    if (inten < 0.03) {
+      for (const r of this.rain) r.mesh.visible = false;
+      return;
+    }
+    const fall = 36 + inten * 18;
+    const windX = -(8 + this.wxS.wind * 18);
+    const cam = this.camera.position;
+    for (const r of this.rain) {
+      if (!r.mesh.visible) {
+        r.mesh.visible = true;
+        r.mesh.position.set(
+          cam.x + (Math.random() - 0.5) * 74,
+          cam.y + 16 + Math.random() * 26,
+          cam.z + (Math.random() - 0.5) * 74
+        );
+      }
+      r.mesh.position.y -= fall * dt;
+      r.mesh.position.x += windX * dt;
+      if (r.mesh.position.y < DECK_Y - 3) {
+        r.mesh.position.set(
+          cam.x + (Math.random() - 0.5) * 74,
+          cam.y + 20 + Math.random() * 22,
+          cam.z + (Math.random() - 0.5) * 74
+        );
+      }
+    }
   }
 
   private ambientFx(dt: number) {
@@ -2066,6 +2194,7 @@ export class Game {
       enemiesLeft,
       waveState: this.waveState,
       kills: this.kills,
+      weather: this.wxS.name,
     });
   }
 }

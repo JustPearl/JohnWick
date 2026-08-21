@@ -20,6 +20,7 @@ const DEFAULT_HUD: HudData = {
   enemiesLeft: 0,
   waveState: "interm",
   kills: 0,
+  weather: "LEADEN SKY",
 };
 
 const WEAPON_LIST = [
@@ -292,6 +293,13 @@ export default function App() {
                   <span className="text-tide">▸ REGROUP — SUPPLY INBOUND</span>
                 )}
               </div>
+            </div>
+            <div className="mt-2 inline-flex items-center gap-1.5 border border-line/50 bg-ink/60 px-2.5 py-1 font-hud text-[11px] font-bold tracking-[0.28em] text-tide/90">
+              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 fill-none stroke-current" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.5 19a4.5 4.5 0 0 0 0-9 6 6 0 0 0-11.6 1.6A4 4 0 0 0 6 19h11.5z" />
+                <path d="M12 12l-2 4h3l-2 4" />
+              </svg>
+              WX ▸ {hud.weather}
             </div>
           </div>
 

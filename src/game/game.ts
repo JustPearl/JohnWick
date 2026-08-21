@@ -207,7 +207,6 @@ export class Game {
   private tracers: Tracer[] = [];
   private shells: Shell[] = [];
   private popups: Popup[] = [];
-  private emberT = 0;
 
   /* waves + score */
   private wave = 0;
@@ -1445,7 +1444,6 @@ export class Game {
       const h = 8.5 + 13.5 * ease + Math.sin(this.time * 0.13) * 3.5 * ease;
       this.camera.position.set(Math.cos(t) * rad - 4, h, Math.sin(t) * rad);
       this.camera.lookAt(-4, 11, 0);
-      this.ambientFx(dt);
       this.stepFx(dt, dt);
       this.renderer.render(this.scene, this.camera);
       return;
@@ -1749,7 +1747,6 @@ export class Game {
     }
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.2);
     this.o.vignette.style.opacity = String(this.damageFlash * 0.85);
-    this.ambientFx(sdt);
 
     /* ---- shake ---- */
     this.shake = Math.max(0, this.shake - dt * 3.2);
@@ -2046,16 +2043,6 @@ export class Game {
           cam.z + (Math.random() - 0.5) * 74
         );
       }
-    }
-  }
-
-  private ambientFx(dt: number) {
-    // flare embers
-    this.emberT -= dt;
-    if (this.emberT <= 0) {
-      this.emberT = 0.12;
-      const tip = this.world.flareTip;
-      this.burst(tip.clone().add(new THREE.Vector3((Math.random() - 0.5) * 0.4, 1, (Math.random() - 0.5) * 0.4)), Math.random() > 0.5 ? 0xffb03a : 0xff6a2a, 1, 1.6, 0.9, -2.2, 0.07);
     }
   }
 

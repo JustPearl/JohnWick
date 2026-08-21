@@ -57,7 +57,6 @@ export interface WorldRefs {
   solids: THREE.Object3D[];
   spawnPoints: THREE.Vector3[];
   playerStart: THREE.Vector3;
-  flareTip: THREE.Vector3;
   boundaryRects: AABB[];
   barrels: BarrelRef[];
   beacon: BeaconRef;
@@ -590,28 +589,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   radar.add(dish);
   world.add(radar);
 
-  /* ---------------- flare stack ---------------- */
-  const flareBase = new THREE.Vector3(-21, DECK_Y, 13);
-  const flareTip = new THREE.Vector3(-27, DECK_Y + 12, 13);
-  const stackDir = flareTip.clone().sub(flareBase);
-  const stack = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.22, 0.42, stackDir.length(), 8),
-    toon(0x7d8a8f)
-  );
-  stack.position.copy(flareBase).addScaledVector(stackDir, 0.5);
-  stack.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), stackDir.clone().normalize());
-  world.add(stack);
-  solids.push(stack);
-  const flareLight = new THREE.PointLight(0xff6a2a, 60, 70, 1.8);
-  flareLight.position.copy(flareTip).add(new THREE.Vector3(0, 1, 0));
-  world.add(flareLight);
-  const flame = new THREE.Mesh(new THREE.ConeGeometry(0.7, 2.4, 7), toon(0xffb03a, 0xff8a2a, 2.2));
-  flame.position.copy(flareTip).add(new THREE.Vector3(0, 1.1, 0));
-  world.add(flame);
-  const flame2 = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.4, 6), toon(0xffe08a, 0xffe08a, 2.6));
-  flame2.position.copy(flareTip).add(new THREE.Vector3(0, 0.9, 0));
-  world.add(flame2);
-
   /* ---------------- crane ---------------- */
   const crane = new THREE.Group();
   crane.position.set(15, DECK_Y, -12);
@@ -837,6 +814,16 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 1.01, 0.16, d * 1.01), toon(0xffd23f, 0xffd23f, 0.25));
     stripe.position.set(x, DECK_Y + 4.62, z);
     world.add(stripe);
+    // support legs planted at both ends of the beam
+    const off = span / 2 - 0.3;
+    const legGeo = new THREE.CylinderGeometry(0.16, 0.2, 4.35, 8);
+    const legMat = toon(0x2c363c);
+    for (const s of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, legMat);
+      leg.position.set(alongX ? x + s * off : x, DECK_Y + 2.17, alongX ? z : z + s * off);
+      world.add(leg);
+      colliders.push({ x1: leg.position.x - 0.25, z1: leg.position.z - 0.25, x2: leg.position.x + 0.25, z2: leg.position.z + 0.25 });
+    }
   };
 
   /* ---------------- crew quarters (west module) ---------------- */
@@ -1022,23 +1009,14 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   ];
 
   /* ---------------- animated bits ---------------- */
-  let flickerT = 0;
   const update = (t: number, dt: number) => {
     seaMat.uniforms.uTime.value = t;
     radar.rotation.y = t * 1.4;
     craneArm.rotation.y = Math.sin(t * 0.12) * 0.9 + 0.6;
     hook.position.y = derH - 10.4 + Math.sin(t * 0.4) * 0.5;
-    flickerT += dt * (7 + Math.sin(t * 2.3) * 3);
-    const fl = 0.75 + 0.25 * Math.sin(flickerT * 3.1) * Math.sin(flickerT * 1.7 + 1.3);
-    flareLight.intensity = 60 * fl;
-    flame.scale.set(0.85 + fl * 0.3, 0.8 + fl * 0.5, 0.85 + fl * 0.3);
-    flame.rotation.y = t * 2.4;
-    flame2.scale.setScalar(0.7 + fl * 0.5);
-    const blink = Math.sin(t * 3.4) > 0 ? 1.6 : 0.15;
     padLamps.forEach((l, i) => {
       (l.material as THREE.MeshToonMaterial).emissiveIntensity = Math.sin(t * 3.4 + i * 1.2) > 0 ? 1.8 : 0.12;
     });
-    void blink;
     postLights.forEach((pl, i) => {
       pl.intensity = 26 * (0.92 + 0.08 * Math.sin(t * 13 + i * 7) * Math.sin(t * 3.7 + i));
     });
@@ -1156,15 +1134,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   workGlow.position.copy(workLight.position);
   workGlow.scale.setScalar(2.4);
   world.add(workGlow);
-  // flare glow sprites
-  const flareGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xff8a3c, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending }));
-  flareGlow.position.copy(flareTip);
-  flareGlow.scale.setScalar(16);
-  world.add(flareGlow);
-  const flareCore = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffe2b0, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
-  flareCore.position.copy(flareTip).add(new THREE.Vector3(0, 0.9, 0));
-  flareCore.scale.setScalar(6);
-  world.add(flareCore);
   // oil slick on the water
   const slick = new THREE.Mesh(new THREE.CircleGeometry(8, 24), new THREE.MeshBasicMaterial({ color: 0x04070a, transparent: true, opacity: 0.35 }));
   slick.rotation.x = -Math.PI / 2;
@@ -1224,9 +1193,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
       p.sp.scale.setScalar(0.7 + p.t * 3.4);
       (p.sp.material as THREE.SpriteMaterial).opacity = Math.sin(p.t * Math.PI) * 0.15;
     }
-    const fl2 = 0.85 + Math.sin(t * 13) * 0.1 + Math.sin(t * 29.7) * 0.05;
-    flareGlow.scale.setScalar(16 * fl2);
-    (flareGlow.material as THREE.SpriteMaterial).opacity = 0.55 + fl2 * 0.3;
     const wk = Math.sin(t * 31) > -0.94 ? 1 : 0.2;
     workLight.intensity = 22 * (0.9 + Math.sin(t * 3.7) * 0.1) * wk;
     (workGlow.material as THREE.SpriteMaterial).opacity = 0.5 * wk;
@@ -1240,7 +1206,6 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     solids,
     spawnPoints,
     playerStart: new THREE.Vector3(2, DECK_Y, 5),
-    flareTip,
     boundaryRects,
     barrels,
     beacon: { pivot: beaconPivot, light: beaconLight, mat: beaconMat },

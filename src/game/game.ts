@@ -1,104 +1,30 @@
 import * as THREE from "three";
-import { buildWorld, DECK_Y, type WorldRefs, type AABB } from "./world";
-import { SFX, type ShotKind } from "./audio";
+import { buildWorld, DECK_Y, type WorldRefs } from "./world";
+import { SFX } from "./audio";
+import { resolveColliders, clampToBounds } from "./physics";
+import { buildViewModels } from "./viewmodels";
+import {
+  WEAPONS,
+  PAL,
+  PLAYER,
+  FOCUS,
+  BLOOM,
+  RECOIL,
+  KILL,
+  WAVES,
+  ENEMY,
+  type WeaponDef,
+  type EnemyType,
+  type Enemy,
+  type Screen,
+  type UiState,
+  type HudData,
+  type GameOptions,
+} from "./config";
 
-export type Screen = "menu" | "playing" | "paused" | "over";
+export type { Screen, GameStats, UiState, HudData, GameOptions } from "./config";
 
-export interface GameStats {
-  score: number;
-  best: number;
-  wave: number;
-  kills: number;
-  headshots: number;
-  accuracy: number;
-  newBest: boolean;
-}
 
-export interface UiState {
-  screen: Screen;
-  stats: GameStats | null;
-}
-
-export interface HudData {
-  hp: number;
-  focus: number;
-  focusActive: boolean;
-  weaponName: string;
-  slot: number;
-  mag: number;
-  magSize: number;
-  reserve: number;
-  reloading: boolean;
-  lowAmmo: boolean;
-  score: number;
-  best: number;
-  combo: number;
-  comboFrac: number;
-  wave: number;
-  enemiesLeft: number;
-  waveState: "combat" | "interm";
-  kills: number;
-}
-
-export interface GameOptions {
-  mount: HTMLDivElement;
-  wrap: HTMLDivElement;
-  overlay: HTMLCanvasElement;
-  fx: HTMLDivElement;
-  vignette: HTMLDivElement;
-  onUi: (ui: UiState) => void;
-  onHud: (hud: HudData) => void;
-}
-
-/* ---------------- weapon defs ---------------- */
-interface WeaponDef {
-  name: string;
-  kind: ShotKind;
-  dmg: number;
-  pellets: number;
-  magSize: number;
-  reserveMax: number;
-  rpm: number;
-  spread: number;
-  kick: number;
-  reloadTime: number;
-}
-const WEAPONS: WeaponDef[] = [
-  { name: "WIDOW-9", kind: "pistol", dmg: 34, pellets: 1, magSize: 12, reserveMax: 84, rpm: 340, spread: 0.006, kick: 1.0, reloadTime: 1.05 },
-  { name: "HORNET SMG", kind: "smg", dmg: 15, pellets: 1, magSize: 30, reserveMax: 180, rpm: 760, spread: 0.011, kick: 0.5, reloadTime: 1.5 },
-  { name: "MAUL-12", kind: "shotgun", dmg: 16, pellets: 7, magSize: 6, reserveMax: 42, rpm: 88, spread: 0.028, kick: 2.4, reloadTime: 2.0 },
-];
-
-/* ---------------- enemy ---------------- */
-type EnemyType = "thug" | "rusher" | "heavy";
-interface Enemy {
-  id: number;
-  type: EnemyType;
-  group: THREE.Group;
-  head: THREE.Mesh;
-  legL: THREE.Group;
-  legR: THREE.Group;
-  armR: THREE.Group;
-  visorMat: THREE.MeshToonMaterial;
-  mats: THREE.MeshToonMaterial[];
-  muzzle: THREE.Object3D;
-  blob: THREE.Mesh;
-  hp: number;
-  maxHp: number;
-  speed: number;
-  range: number;
-  desired: number;
-  dmg: number;
-  state: "spawn" | "chase" | "windup" | "dying";
-  stateT: number;
-  fireCd: number;
-  strafePhase: number;
-  flashT: number;
-  fallDir: number;
-  windPhase: number;
-  burstLeft: number;
-  slide?: THREE.Vector3;
-}
 
 interface Particle {
   mesh: THREE.Mesh;
@@ -141,8 +67,6 @@ interface Popup {
   t: number;
 }
 
-const BOUND_R = 0.55;
-
 export class Game {
   private o: GameOptions;
   private renderer: THREE.WebGLRenderer;
@@ -162,14 +86,14 @@ export class Game {
   private yaw = Math.PI;
   private pitch = 0;
   private onGround = true;
-  private eye = 1.62;
-  private eyeTarget = 1.62;
+  private eye: number = PLAYER.EYE_STAND;
+  private eyeTarget: number = PLAYER.EYE_STAND;
   private sliding = 0;
   private slideCd = 0;
   private bobPhase = 0;
   private stepDist = 0;
-  private hp = 100;
-  private focus = 60;
+  private hp: number = PLAYER.HP_MAX;
+  private focus: number = FOCUS.START;
   private focusActive = false;
   private wantFocus = false;
   private timescale = 1;
@@ -232,7 +156,7 @@ export class Game {
 
   /* input */
   private keys = new Set<string>();
-  private mouseSens = 0.00225;
+  private mouseSens: number = PLAYER.MOUSE_SENS;
   private lastLockRequest = -99;
   private menuIn = 0;
 
@@ -304,178 +228,16 @@ export class Game {
 
   /* ================= view models ================= */
   private buildViewModels() {
-    const amber = new THREE.MeshToonMaterial({ color: 0xffb03a, emissive: 0xff8a2a, emissiveIntensity: 0.5 });
-
-    const flashMat = new THREE.MeshBasicMaterial({
-      color: 0xffd98a,
-      transparent: true,
-      opacity: 0.95,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const build = (
-      fn: (g: THREE.Group) => THREE.Vector3,
-      px = 0.34,
-      py = -0.3,
-      pz = -0.62,
-      flashScale = 1
-    ) => {
-      const g = new THREE.Group();
-      const muzzle = new THREE.Object3D();
-      muzzle.position.copy(fn(g));
-      g.add(muzzle);
-      const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMat);
-      flash.position.copy(muzzle.position);
-      flash.position.z -= 0.1;
-      flash.scale.setScalar(flashScale);
-      flash.visible = false;
-      g.add(flash);
-      g.position.set(px, py, pz);
-      g.visible = false;
-      this.camera.add(g);
-      this.vmGroups.push(g);
-      this.muzzleObj.push(muzzle);
-      this.muzzleFlashes.push(flash);
-      this.vmBase.push(new THREE.Vector3(px, py, pz));
-      this.flashBase.push(flashScale);
-      return g;
-    };
-    const B = (w: number, h: number, d: number, m: THREE.Material, x: number, y: number, z: number, rx = 0, ry = 0) => {
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
-      mesh.position.set(x, y, z);
-      mesh.rotation.x = rx;
-      mesh.rotation.y = ry;
-      return mesh;
-    };
-    const C = (r: number, len: number, m: THREE.Material, x: number, y: number, z: number) => {
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 10), m);
-      mesh.rotation.x = Math.PI / 2;
-      mesh.position.set(x, y, z);
-      return mesh;
-    };
-
-    /* ---- WIDOW-9 · modern .45 polymer pistol ---- */
-    build((g) => {
-      const slideM = new THREE.MeshToonMaterial({ color: 0x33383f });
-      const frameM = new THREE.MeshToonMaterial({ color: 0x1f2328 });
-      const gripM = new THREE.MeshToonMaterial({ color: 0x26292f });
-      const cutM = new THREE.MeshToonMaterial({ color: 0x121519 });
-      g.add(
-        B(0.085, 0.095, 0.34, slideM, 0, 0.05, -0.05), // slide
-        B(0.093, 0.08, 0.07, cutM, 0, 0.05, 0.078), // rear serration block
-        C(0.019, 0.06, cutM, 0, 0.052, -0.245), // barrel crown
-        B(0.073, 0.055, 0.26, frameM, 0, -0.02, -0.06), // frame / dust cover
-        B(0.012, 0.012, 0.11, cutM, 0.028, -0.053, -0.12), // accessory rail
-        B(0.012, 0.012, 0.11, cutM, -0.028, -0.053, -0.12),
-        B(0.05, 0.05, 0.016, frameM, 0, -0.075, -0.115), // trigger guard
-        B(0.05, 0.016, 0.09, frameM, 0, -0.1, -0.065),
-        B(0.012, 0.032, 0.01, cutM, 0, -0.062, -0.045, -0.35), // trigger
-        B(0.07, 0.16, 0.09, gripM, 0, -0.125, 0.055, -0.3), // grip
-        B(0.05, 0.12, 0.014, cutM, 0, -0.125, 0.105, -0.3), // backstrap
-        B(0.062, 0.02, 0.082, cutM, 0, -0.2, 0.082, -0.3), // mag baseplate
-        B(0.06, 0.025, 0.03, gripM, 0, -0.03, 0.115), // beavertail
-        B(0.011, 0.022, 0.014, cutM, 0.016, 0.107, 0.085), // rear sights
-        B(0.011, 0.022, 0.014, cutM, -0.016, 0.107, 0.085),
-        B(0.013, 0.026, 0.014, cutM, 0, 0.107, -0.19), // front sight
-        B(0.007, 0.007, 0.007, amber, 0, 0.122, -0.19), // tritium dot
-        B(0.006, 0.04, 0.09, cutM, 0.045, 0.055, -0.02) // ejection port
-      );
-      return new THREE.Vector3(0, 0.052, -0.3);
-    }, 0.33, -0.3, -0.58, 1.0);
-
-    /* ---- HORNET · UZI ---- */
-    build((g) => {
-      const recM = new THREE.MeshToonMaterial({ color: 0x32373e });
-      const shroudM = new THREE.MeshToonMaterial({ color: 0x1e2126 });
-      const steelM = new THREE.MeshToonMaterial({ color: 0x3d434b });
-      const gripM = new THREE.MeshToonMaterial({ color: 0x1a1d21 });
-      const cutM = new THREE.MeshToonMaterial({ color: 0x121418 });
-      g.add(
-        B(0.1, 0.11, 0.3, recM, 0, 0.03, -0.02), // receiver
-        B(0.095, 0.1, 0.05, shroudM, 0, 0.03, -0.185), // front plate
-        C(0.03, 0.18, shroudM, 0, 0.045, -0.31), // barrel shroud
-        C(0.036, 0.03, cutM, 0, 0.045, -0.415), // muzzle ring
-        C(0.015, 0.05, cutM, 0, 0.045, -0.45), // crown
-        B(0.04, 0.02, 0.26, cutM, 0, 0.095, -0.02), // top channel
-        B(0.02, 0.03, 0.03, cutM, 0, 0.117, 0.02), // charging handle
-        B(0.045, 0.1, 0.05, shroudM, 0, -0.075, -0.155, 0.15), // folding foregrip
-        B(0.03, 0.02, 0.03, cutM, 0, -0.018, -0.16),
-        B(0.075, 0.13, 0.085, gripM, 0, -0.09, 0.045, -0.25), // pistol grip
-        B(0.05, 0.17, 0.045, steelM, 0, -0.23, 0.088, -0.25), // magazine in grip
-        B(0.056, 0.02, 0.051, cutM, 0, -0.315, 0.115, -0.25), // mag baseplate
-        B(0.05, 0.016, 0.09, gripM, 0, -0.052, 0.02), // trigger guard
-        B(0.05, 0.045, 0.014, gripM, 0, -0.032, 0.068),
-        B(0.012, 0.03, 0.01, cutM, 0, -0.032, 0.02, -0.3), // trigger
-        B(0.012, 0.012, 0.3, shroudM, 0.032, 0.1, 0.24, -0.24), // wire stock arms
-        B(0.012, 0.012, 0.3, shroudM, -0.032, 0.1, 0.24, -0.24),
-        B(0.075, 0.05, 0.035, shroudM, 0, 0.158, 0.385, -0.24), // shoulder piece
-        B(0.012, 0.05, 0.012, cutM, 0, 0.105, -0.27), // front post
-        B(0.006, 0.042, 0.012, cutM, 0.02, 0.1, -0.27), // post ears
-        B(0.006, 0.042, 0.012, cutM, -0.02, 0.1, -0.27),
-        B(0.03, 0.02, 0.012, cutM, 0, 0.105, 0.1) // rear aperture
-      );
-      return new THREE.Vector3(0, 0.045, -0.48);
-    }, 0.33, -0.29, -0.56, 1.15);
-
-    /* ---- MAUL-12 · tactical shotgun ---- */
-    build((g) => {
-      const recM = new THREE.MeshToonMaterial({ color: 0x292d33 });
-      const barrelM = new THREE.MeshToonMaterial({ color: 0x1c1f24 });
-      const shieldM = new THREE.MeshToonMaterial({ color: 0x343941 });
-      const forendM = new THREE.MeshToonMaterial({ color: 0x40464e });
-      const stockM = new THREE.MeshToonMaterial({ color: 0x1e2126 });
-      const cutM = new THREE.MeshToonMaterial({ color: 0x101317 });
-      const oliveM = new THREE.MeshToonMaterial({ color: 0x5c6142 });
-      const redFiber = new THREE.MeshToonMaterial({ color: 0xff4a3a, emissive: 0xff2a1a, emissiveIntensity: 1.4 });
-      g.add(
-        B(0.095, 0.115, 0.3, recM, 0, 0.04, -0.02), // receiver
-        B(0.006, 0.05, 0.11, cutM, 0.05, 0.05, -0.02), // ejection port
-        C(0.03, 0.62, barrelM, 0, 0.055, -0.44), // barrel
-        C(0.038, 0.07, cutM, 0, 0.055, -0.775), // muzzle brake
-        C(0.04, 0.012, barrelM, 0, 0.055, -0.76),
-        C(0.04, 0.012, barrelM, 0, 0.055, -0.79),
-        B(0.04, 0.012, 0.4, shieldM, 0, 0.098, -0.42), // ventilated heat shield
-        B(0.012, 0.008, 0.05, cutM, 0, 0.105, -0.28),
-        B(0.012, 0.008, 0.05, cutM, 0, 0.105, -0.36),
-        B(0.012, 0.008, 0.05, cutM, 0, 0.105, -0.44),
-        B(0.012, 0.008, 0.05, cutM, 0, 0.105, -0.52),
-        B(0.012, 0.008, 0.05, cutM, 0, 0.105, -0.58),
-        B(0.012, 0.03, 0.012, cutM, 0, 0.08, -0.28), // shield posts
-        B(0.012, 0.03, 0.012, cutM, 0, 0.08, -0.56),
-        C(0.026, 0.5, barrelM, 0, -0.012, -0.36), // mag tube
-        C(0.031, 0.03, cutM, 0, -0.012, -0.62), // tube cap
-        B(0.09, 0.085, 0.17, forendM, 0, 0.02, -0.27), // ribbed pump forend
-        B(0.094, 0.089, 0.014, cutM, 0, 0.02, -0.33),
-        B(0.094, 0.089, 0.014, cutM, 0, 0.02, -0.27),
-        B(0.094, 0.089, 0.014, cutM, 0, 0.02, -0.21),
-        B(0.035, 0.014, 0.24, cutM, 0, 0.104, -0.03), // top picatinny rail
-        B(0.03, 0.01, 0.014, shieldM, 0, 0.117, -0.11),
-        B(0.03, 0.01, 0.014, shieldM, 0, 0.117, -0.06),
-        B(0.03, 0.01, 0.014, shieldM, 0, 0.117, -0.01),
-        B(0.03, 0.01, 0.014, shieldM, 0, 0.117, 0.04),
-        B(0.06, 0.04, 0.11, oliveM, 0, -0.035, 0.05), // olive trigger housing
-        B(0.05, 0.014, 0.09, oliveM, 0, -0.062, 0.04),
-        B(0.05, 0.04, 0.014, oliveM, 0, -0.045, 0.09),
-        B(0.012, 0.03, 0.01, cutM, 0, -0.035, 0.055, -0.3), // trigger
-        B(0.065, 0.14, 0.08, stockM, 0, -0.09, 0.105, -0.32), // pistol-grip stock
-        B(0.075, 0.09, 0.24, stockM, 0, 0.015, 0.235, -0.06), // stock body
-        B(0.05, 0.02, 0.12, cutM, 0, 0.065, 0.22, -0.06), // cheek riser
-        B(0.082, 0.1, 0.03, cutM, 0, 0.003, 0.36, -0.06) // rubber buttpad
-      );
-      const ghost = new THREE.Mesh(new THREE.TorusGeometry(0.013, 0.004, 6, 12), cutM);
-      ghost.position.set(0, 0.135, -0.12);
-      g.add(ghost);
-      const bead = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.025, 6), redFiber);
-      bead.position.set(0, 0.095, -0.7);
-      g.add(bead);
-      return new THREE.Vector3(0, 0.055, -0.84);
-    }, 0.3, -0.34, -0.55, 1.8);
-
-    this.muzzleLight = new THREE.PointLight(0xffb066, 0, 14, 1.6);
-    this.muzzleLight.position.set(0.34, -0.24, -1.0);
-    this.camera.add(this.muzzleLight);
+    const vm = buildViewModels(this.camera);
+    this.vmGroups = vm.groups;
+    this.muzzleObj = vm.muzzle;
+    this.muzzleFlashes = vm.flashes;
+    this.vmBase = vm.base;
+    this.flashBase = vm.flashBase;
+    this.muzzleLight = vm.light;
   }
+
+
 
   /* ================= pools ================= */
   private buildPools() {
@@ -498,7 +260,7 @@ export class Game {
     }
     const tGeo = new THREE.BoxGeometry(0.028, 0.028, 1);
     const tMat = new THREE.MeshBasicMaterial({
-      color: 0xffc46a,
+      color: PAL.TRACER,
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
@@ -510,7 +272,7 @@ export class Game {
       this.tracers.push({ mesh, life: 0, active: false });
     }
     const sGeo = new THREE.BoxGeometry(0.045, 0.11, 0.045);
-    const sMat = new THREE.MeshToonMaterial({ color: 0xd8a24a });
+    const sMat = new THREE.MeshToonMaterial({ color: PAL.SHELL });
     for (let i = 0; i < 30; i++) {
       const mesh = new THREE.Mesh(sGeo, sMat);
       mesh.visible = false;
@@ -520,7 +282,7 @@ export class Game {
     const bGeo = new THREE.BoxGeometry(0.05, 0.05, 0.8);
     for (let i = 0; i < 24; i++) {
       const mat = new THREE.MeshBasicMaterial({
-        color: 0xff5a3a,
+        color: PAL.BULLET,
         transparent: true,
         opacity: 0.9,
         blending: THREE.AdditiveBlending,
@@ -542,7 +304,7 @@ export class Game {
     }
     const decalGeo = new THREE.CircleGeometry(1, 18);
     for (let i = 0; i < 30; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: 0x6b1218, transparent: true, opacity: 0, depthWrite: false });
+      const mat = new THREE.MeshBasicMaterial({ color: PAL.BLOOD_DARK, transparent: true, opacity: 0, depthWrite: false });
       const mesh = new THREE.Mesh(decalGeo, mat);
       mesh.rotation.x = -Math.PI / 2;
       mesh.visible = false;
@@ -649,26 +411,26 @@ export class Game {
       mats,
       muzzle,
       blob,
-      hp: heavy ? 200 : rusher ? 60 : 68,
-      maxHp: heavy ? 200 : rusher ? 60 : 68,
-      speed: (heavy ? 2.5 : rusher ? 6.2 : 3.6 + Math.random() * 1.2) * (1 + this.wave * 0.015),
-      range: heavy ? 26 : 20,
-      desired: rusher ? 1.25 : heavy ? 8 + Math.random() * 4 : 9 + Math.random() * 7,
-      dmg: heavy ? 15 : rusher ? 20 : 9,
+      hp: heavy ? ENEMY.HP.heavy : rusher ? ENEMY.HP.rusher : ENEMY.HP.thug,
+      maxHp: heavy ? ENEMY.HP.heavy : rusher ? ENEMY.HP.rusher : ENEMY.HP.thug,
+      speed: (heavy ? ENEMY.SPEED.heavy : rusher ? ENEMY.SPEED.rusher : ENEMY.SPEED.thug + Math.random() * ENEMY.THUG_SPEED_VAR) * (1 + this.wave * ENEMY.WAVE_SPEED_SCALE),
+      range: heavy ? ENEMY.RANGE.heavy : ENEMY.RANGE.other,
+      desired: rusher ? ENEMY.DESIRED.rusher : heavy ? ENEMY.DESIRED.heavyBase + Math.random() * ENEMY.DESIRED.heavyVar : ENEMY.DESIRED.thugBase + Math.random() * ENEMY.DESIRED.thugVar,
+      dmg: heavy ? ENEMY.DMG.heavy : rusher ? ENEMY.DMG.rusher : ENEMY.DMG.thug,
       state: "spawn",
       stateT: 0,
-      fireCd: 1 + Math.random() * 1.2,
+      fireCd: ENEMY.FIRE_CD_MIN + Math.random() * ENEMY.FIRE_CD_VAR,
       strafePhase: Math.random() * Math.PI * 2,
       flashT: 0,
       fallDir: Math.random() * Math.PI * 2,
       windPhase: 0,
       burstLeft: 0,
     };
-    e.hp *= 1 + this.wave * 0.07;
+    e.hp *= 1 + this.wave * ENEMY.WAVE_HP_SCALE;
     e.maxHp = e.hp;
     // generous invisible body hitbox (raycaster tests invisible meshes)
     const hitbox = new THREE.Mesh(
-      new THREE.CylinderGeometry(heavy ? 0.85 : 0.62, heavy ? 0.85 : 0.62, heavy ? 2.05 : 1.9, 8),
+      new THREE.CylinderGeometry(heavy ? ENEMY.HITBOX.heavyR : ENEMY.HITBOX.otherR, heavy ? ENEMY.HITBOX.heavyR : ENEMY.HITBOX.otherR, heavy ? ENEMY.HITBOX.heavyH : ENEMY.HITBOX.otherH, 8),
       new THREE.MeshBasicMaterial({ visible: false })
     );
     hitbox.position.y = heavy ? 1.02 : 0.95;
@@ -765,8 +527,8 @@ export class Game {
       move.copy(perp).multiplyScalar(e.speed * 0.55);
     }
     e.group.position.addScaledVector(move, dt);
-    resolveColliders(e.group.position, 0.5, this.world.colliders);
-    clampToBounds(e.group.position, 0.5, this.world.boundaryRects);
+    resolveColliders(e.group.position, ENEMY.RADIUS, this.world.colliders);
+    clampToBounds(e.group.position, ENEMY.RADIUS, this.world.boundaryRects);
 
     // face player
     const targetYaw = Math.atan2(dir.x, dir.z) + Math.PI;
@@ -829,7 +591,7 @@ export class Game {
     e.muzzle.getWorldPosition(from);
     const aim = this.pos.clone();
     aim.y = DECK_Y + 1.35;
-    const spread = e.type === "heavy" ? 0.05 : 0.035;
+    const spread = e.type === "heavy" ? ENEMY.FIRE_SPREAD.heavy : ENEMY.FIRE_SPREAD.other;
     const dir = aim.sub(from).normalize();
     dir.x += (Math.random() - 0.5) * spread * 2;
     dir.y += (Math.random() - 0.5) * spread * 2;
@@ -873,10 +635,10 @@ export class Game {
     w.mag--;
     this.shotsFired++;
     this.sfx.shot(w.def.kind);
-    this.vmRecoil = Math.min(0.16, this.vmRecoil + 0.09 + w.def.kick * 0.03);
-    this.pitchKick += 0.008 + w.def.kick * 0.006;
-    this.rollKick = (Math.random() - 0.5) * 0.02 * w.def.kick;
-    this.bloom = Math.min(0.05, this.bloom + w.def.spread * 0.8 + w.def.kick * 0.0025);
+    this.vmRecoil = Math.min(RECOIL.VM_CAP, this.vmRecoil + RECOIL.VM_ADD + w.def.kick * RECOIL.VM_PER_KICK);
+    this.pitchKick += RECOIL.PITCH_ADD + w.def.kick * RECOIL.PITCH_PER_KICK;
+    this.rollKick = (Math.random() - 0.5) * RECOIL.ROLL_PER_KICK * w.def.kick;
+    this.bloom = Math.min(BLOOM.CAP, this.bloom + w.def.spread * BLOOM.SPREAD_MULT + w.def.kick * BLOOM.KICK_MULT);
     this.shake = Math.min(1, this.shake + 0.1 + w.def.kick * 0.08);
     this.muzzleT = 0.05;
     this.muzzleLight.intensity = 26;
@@ -908,7 +670,7 @@ export class Game {
         const en = this.enemies.find((x) => x.id === eid);
         const isHead = eH.object.name === "head";
         if (en && en.state !== "dying") {
-          const dmg = w.def.dmg * (isHead ? 1.8 : 1);
+          const dmg = w.def.dmg * (isHead ? KILL.HEAD_MULT : 1);
           this.hitEnemy(en, dmg, isHead, eH.point);
         }
         end = eH.point;
@@ -940,12 +702,12 @@ export class Game {
     e.hp -= dmg;
     e.flashT = 0.09;
     for (const m of e.mats) {
-      m.emissive.setHex(0xffe0c0);
+      m.emissive.setHex(PAL.BONE_FLASH);
       m.emissiveIntensity = 0.9;
     }
     this.hitT = 0.13;
     this.sfx.hit(head);
-    this.burst(point, head ? 0xffd23f : 0xd1202f, head ? 12 : 7, 3.4, 0.4, 9, 0.06);
+    this.burst(point, head ? PAL.HAZARD : PAL.BLOOD, head ? 12 : 7, 3.4, 0.4, 9, 0.06);
     if (e.hp <= 0) this.killEnemy(e, head);
   }
 
@@ -956,16 +718,16 @@ export class Game {
     this.corpseRoot.add(e.group);
     this.killT = 0.2;
     this.sfx.die();
-    this.burst(e.group.position.clone().setY(DECK_Y + 1.2), 0xd1202f, 16, 4.4, 0.55, 10, 0.07);
-    this.burst(e.group.position.clone().setY(DECK_Y + 1.2), 0x23282b, 8, 3, 0.5, 10, 0.09);
+    this.burst(e.group.position.clone().setY(DECK_Y + 1.2), PAL.BLOOD, 16, 4.4, 0.55, 10, 0.07);
+    this.burst(e.group.position.clone().setY(DECK_Y + 1.2), PAL.SMOKE, 8, 3, 0.5, 10, 0.09);
 
     // kill impact: hitstop, fov punch, shockwave ring, blood decal, screen flash
-    this.hitstop = Math.max(this.hitstop, head ? 0.075 : 0.05);
+    this.hitstop = Math.max(this.hitstop, head ? KILL.HITSTOP_HEAD : KILL.HITSTOP);
     this.fovPunch = 1;
     this.sfx.thump();
     const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
     fwd.y = 0;
-    fwd.normalize().multiplyScalar(head ? 3.6 : 2.6);
+    fwd.normalize().multiplyScalar(head ? KILL.SLIDE_KICK_HEAD : KILL.SLIDE_KICK);
     e.slide = fwd;
     this.spawnDecal(e.group.position);
     const flash = document.createElement("div");
@@ -976,12 +738,12 @@ export class Game {
     this.kills++;
     if (head) this.headshots++;
     this.combo = this.comboT > 0 ? this.combo + 1 : 1;
-    this.comboT = 2.6;
-    const mult = Math.min(3, 1 + (this.combo - 1) * 0.15);
-    const base = e.type === "heavy" ? 300 : e.type === "rusher" ? 150 : 100;
-    const gained = Math.round(base * (head ? 1.5 : 1) * mult);
+    this.comboT = KILL.COMBO_WINDOW;
+    const mult = Math.min(KILL.COMBO_CAP, 1 + (this.combo - 1) * KILL.COMBO_MULT);
+    const base = e.type === "heavy" ? KILL.SCORE.heavy : e.type === "rusher" ? KILL.SCORE.rusher : KILL.SCORE.thug;
+    const gained = Math.round(base * (head ? KILL.HEAD_SCORE_MULT : 1) * mult);
     this.score += gained;
-    this.focus = Math.min(100, this.focus + 14);
+    this.focus = Math.min(FOCUS.MAX, this.focus + FOCUS.KILL_GAIN);
 
     const p = e.group.position.clone().setY(DECK_Y + 1.9);
     this.popup(p, `+${gained}`, head ? "text-hazard" : "text-amber");
@@ -991,7 +753,7 @@ export class Game {
 
     // drops
     const roll = Math.random();
-    const kind: Pickup["kind"] | null = roll < 0.16 ? "ammo" : roll < 0.24 ? "focus" : roll < 0.32 ? "med" : null;
+    const kind: Pickup["kind"] | null = roll < KILL.DROP.ammo ? "ammo" : roll < KILL.DROP.focus ? "focus" : roll < KILL.DROP.med ? "med" : null;
     if (kind) this.spawnPickup(kind, e.group.position.clone());
   }
 
@@ -1048,7 +810,7 @@ export class Game {
   private spawnPickup(kind: Pickup["kind"], at: THREE.Vector3) {
     const pk = this.pickups.find((x) => !x.active);
     if (!pk) return;
-    const color = kind === "ammo" ? 0xffb03a : kind === "med" ? 0xff5a6a : 0x2fe6b0;
+    const color = kind === "ammo" ? PAL.AMBER : kind === "med" ? PAL.MED : PAL.TIDE;
     const body = new THREE.Mesh(
       new THREE.OctahedronGeometry(0.4),
       new THREE.MeshToonMaterial({ color, emissive: color, emissiveIntensity: 0.9 })
@@ -1104,10 +866,10 @@ export class Game {
     this.waveState = "interm";
     this.intermT = dur;
     if (!first) {
-      const bonus = 200 + this.wave * 60;
+      const bonus = WAVES.BONUS_BASE + this.wave * WAVES.BONUS_PER_WAVE;
       this.score += bonus;
       for (const w of this.weapons) w.reserve = w.def.reserveMax;
-      this.hp = Math.min(100, this.hp + 22);
+      this.hp = Math.min(PLAYER.HP_MAX, this.hp + PLAYER.WAVE_HEAL);
       this.banner("WAVE CLEARED", `SUPPLY DROP +${bonus} · AMMO RESTOCKED`);
       this.sfx.waveClear();
     } else {
@@ -1121,9 +883,9 @@ export class Game {
     this.waveState = "combat";
     const n = this.wave;
     const q: EnemyType[] = [];
-    const thugs = Math.min(22, 4 + n * 2);
-    const rushers = n >= 2 ? Math.min(8, 1 + Math.floor(n * 0.7)) : 0;
-    const heavies = n >= 4 ? Math.min(4, Math.floor(n / 3)) : 0;
+    const thugs = Math.min(WAVES.THUG_CAP, WAVES.THUG_BASE + n * WAVES.THUG_PER_WAVE);
+    const rushers = n >= WAVES.RUSHER_MIN_WAVE ? Math.min(WAVES.RUSHER_CAP, WAVES.RUSHER_BASE + Math.floor(n * WAVES.RUSHER_PER_WAVE)) : 0;
+    const heavies = n >= WAVES.HEAVY_MIN_WAVE ? Math.min(WAVES.HEAVY_CAP, Math.floor(n / WAVES.HEAVY_EVERY)) : 0;
     for (let i = 0; i < thugs; i++) q.push("thug");
     for (let i = 0; i < rushers; i++) q.push("rusher");
     for (let i = 0; i < heavies; i++) q.push("heavy");
@@ -1133,7 +895,7 @@ export class Game {
       [q[i], q[j]] = [q[j], q[i]];
     }
     this.spawnQueue = q;
-    this.spawnT = 0.5;
+    this.spawnT = WAVES.SPAWN_DELAY;
     this.banner(`WAVE ${String(n).padStart(2, "0")}`, `${q.length} HOSTILES · BOARDING NOW`);
     this.sfx.wave();
   }
@@ -1151,10 +913,10 @@ export class Game {
         const type = this.spawnQueue.shift()!;
         const pt = this.pickSpawn();
         this.makeEnemy(type, pt);
-        this.spawnT = Math.max(0.5, 1.5 - this.wave * 0.07);
+        this.spawnT = Math.max(WAVES.SPAWN_T_MIN, WAVES.SPAWN_T_BASE - this.wave * WAVES.SPAWN_T_DECAY);
       }
     } else if (alive === 0) {
-      this.startIntermission(6);
+      this.startIntermission(WAVES.INTERMISSION);
     }
   }
 
@@ -1186,7 +948,7 @@ export class Game {
     if (this.screen !== "playing" || document.pointerLockElement !== this.renderer.domElement) return;
     this.yaw -= e.movementX * this.mouseSens;
     this.pitch -= e.movementY * this.mouseSens;
-    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch));
+    this.pitch = Math.max(-PLAYER.PITCH_MAX, Math.min(PLAYER.PITCH_MAX, this.pitch));
   }
 
   private onMouseDown(e: MouseEvent) {
@@ -1312,8 +1074,8 @@ export class Game {
     this.vel.set(0, 0, 0);
     this.yaw = Math.PI;
     this.pitch = 0;
-    this.hp = 100;
-    this.focus = 60;
+    this.hp = PLAYER.HP_MAX;
+    this.focus = FOCUS.START;
     this.focusActive = false;
     this.timescale = 1;
     this.sliding = 0;
@@ -1331,7 +1093,7 @@ export class Game {
     this.wave = 0;
     this.damageFlash = 0;
     this.shake = 0;
-    this.startIntermission(3.4, true);
+    this.startIntermission(WAVES.FIRST_DELAY, true);
   }
 
   pause() {
@@ -1467,7 +1229,7 @@ export class Game {
       this.o.wrap.classList.add("no-focus-fx");
     }
     if (this.focusActive) {
-      this.focus = Math.max(0, this.focus - 24 * dt);
+      this.focus = Math.max(0, this.focus - FOCUS.DRAIN * dt);
       if (this.focus <= 0) {
         this.focusActive = false;
         this.sfx.focus(false);
@@ -1475,9 +1237,9 @@ export class Game {
         this.o.wrap.classList.add("no-focus-fx");
       }
     } else {
-      this.focus = Math.min(100, this.focus + 4.5 * dt);
+      this.focus = Math.min(FOCUS.MAX, this.focus + FOCUS.REGEN * dt);
     }
-    const tsTarget = this.focusActive ? 0.34 : 1;
+    const tsTarget = this.focusActive ? FOCUS.TIME_SCALE : 1;
     this.timescale += (tsTarget - this.timescale) * Math.min(1, dt * 10);
     let sdt = dt * this.timescale;
     if (this.hitstop > 0) {
@@ -1498,50 +1260,50 @@ export class Game {
     if (moveDir.lengthSq() > 0) moveDir.normalize();
 
     const sprinting = this.keys.has("ShiftLeft") && mz > 0 && this.sliding <= 0;
-    let speed = sprinting ? 7.6 : 5.1;
-    if (this.focusActive) speed *= 0.85;
+    let speed = sprinting ? PLAYER.SPRINT : PLAYER.WALK;
+    if (this.focusActive) speed *= PLAYER.FOCUS_SPEED_MULT;
 
     // slide
     this.slideCd -= dt;
     if ((this.keys.has("KeyC") || this.keys.has("ControlLeft")) && sprinting && this.sliding <= 0 && this.slideCd <= 0 && this.onGround) {
-      this.sliding = 0.75;
-      this.slideCd = 1.1;
-      this.vel.x = moveDir.x * 11.5;
-      this.vel.z = moveDir.z * 11.5;
+      this.sliding = PLAYER.SLIDE_TIME;
+      this.slideCd = PLAYER.SLIDE_CD;
+      this.vel.x = moveDir.x * PLAYER.SLIDE_BOOST;
+      this.vel.z = moveDir.z * PLAYER.SLIDE_BOOST;
       this.sfx.slide();
       this.shake = Math.min(1, this.shake + 0.25);
     }
     if (this.sliding > 0) {
       this.sliding -= dt;
-      this.vel.x *= 1 - dt * 1.6;
-      this.vel.z *= 1 - dt * 1.6;
-      this.eyeTarget = 1.02;
+      this.vel.x *= 1 - dt * PLAYER.SLIDE_DRAG;
+      this.vel.z *= 1 - dt * PLAYER.SLIDE_DRAG;
+      this.eyeTarget = PLAYER.EYE_SLIDE;
     } else {
-      const accel = this.onGround ? 12 : 4;
+      const accel = this.onGround ? PLAYER.GROUND_ACCEL : PLAYER.AIR_ACCEL;
       this.vel.x += (moveDir.x * speed - this.vel.x) * Math.min(1, dt * accel);
       this.vel.z += (moveDir.z * speed - this.vel.z) * Math.min(1, dt * accel);
-      this.eyeTarget = 1.62;
+      this.eyeTarget = PLAYER.EYE_STAND;
     }
 
     // jump + gravity
     if (this.keys.has("Space") && this.onGround) {
-      this.vel.y = 6.6;
+      this.vel.y = PLAYER.JUMP_V;
       this.onGround = false;
       this.sfx.jump();
     }
     if (!this.onGround) {
-      this.vel.y -= 19 * dt;
+      this.vel.y -= PLAYER.GRAVITY * dt;
     }
     this.pos.addScaledVector(this.vel, dt);
     if (this.pos.y <= DECK_Y) {
-      if (!this.onGround && this.vel.y < -3) this.sfx.land();
+      if (!this.onGround && this.vel.y < PLAYER.LAND_SFX_FALL) this.sfx.land();
       this.pos.y = DECK_Y;
       this.vel.y = 0;
       this.onGround = true;
     }
 
-    resolveColliders(this.pos, BOUND_R, this.world.colliders);
-    clampToBounds(this.pos, BOUND_R, this.world.boundaryRects);
+    resolveColliders(this.pos, PLAYER.RADIUS, this.world.colliders);
+    clampToBounds(this.pos, PLAYER.RADIUS, this.world.boundaryRects);
     this.eye += (this.eyeTarget - this.eye) * Math.min(1, dt * 12);
 
     // footsteps + bob
@@ -1566,13 +1328,13 @@ export class Game {
     );
     this.camera.rotation.set(this.pitch + this.pitchKick + Math.sin(this.bobPhase) * 0.006, this.yaw, this.rollKick);
     this.fovPunch *= 1 - Math.min(1, dt * 11);
-    const fovT = (this.focusActive ? 57 : 74) - this.fovPunch * 4.2;
+    const fovT = (this.focusActive ? FOCUS.FOV : FOCUS.FOV_NORMAL) - this.fovPunch * RECOIL.FOV_PUNCH_DEG;
     this.camera.fov += (fovT - this.camera.fov) * Math.min(1, dt * 14);
     this.camera.updateProjectionMatrix();
 
     /* ---- weapons ---- */
     this.fireCd -= dt;
-    this.bloom *= 1 - Math.min(1, dt * 9);
+    this.bloom *= 1 - Math.min(1, dt * BLOOM.RECOVERY);
     this.vmRecoil *= 1 - Math.min(1, dt * 11);
     this.vmLift += (0 - this.vmLift) * Math.min(1, dt * 10);
     this.muzzleT -= dt;
@@ -1668,14 +1430,14 @@ export class Game {
       if (this.pos.distanceTo(body.position) < 1.6) {
         this.sfx.pickup();
         if (pk.kind === "ammo") {
-          for (const w of this.weapons) w.reserve = Math.min(w.def.reserveMax, w.reserve + Math.round(w.def.reserveMax * 0.3));
+          for (const w of this.weapons) w.reserve = Math.min(w.def.reserveMax, w.reserve + Math.round(w.def.reserveMax * KILL.AMMO_REFILL));
           this.popup(body.position.clone(), "AMMO CACHE", "text-amber");
         } else if (pk.kind === "med") {
-          this.hp = Math.min(100, this.hp + 28);
-          this.popup(body.position.clone(), "+28 HP", "text-blood");
+          this.hp = Math.min(PLAYER.HP_MAX, this.hp + KILL.PICKUP_HP);
+          this.popup(body.position.clone(), `+${KILL.PICKUP_HP} HP`, "text-blood");
         } else {
-          this.focus = Math.min(100, this.focus + 40);
-          this.popup(body.position.clone(), "FOCUS +40", "text-tide");
+          this.focus = Math.min(FOCUS.MAX, this.focus + KILL.PICKUP_FOCUS);
+          this.popup(body.position.clone(), `FOCUS +${KILL.PICKUP_FOCUS}`, "text-tide");
         }
         this.burst(body.position.clone(), 0xffd98a, 10, 2.4, 0.4, 4, 0.06);
         this.scene.remove(body);
@@ -1693,8 +1455,8 @@ export class Game {
     if (this.comboT <= 0) this.combo = 0;
 
     // hp regen
-    if (this.time - this.lastDamageT > 5 && this.hp > 0) {
-      this.hp = Math.min(100, this.hp + 7.5 * dt);
+    if (this.time - this.lastDamageT > PLAYER.REGEN_DELAY && this.hp > 0) {
+      this.hp = Math.min(PLAYER.HP_MAX, this.hp + PLAYER.REGEN_RATE * dt);
     }
     this.damageFlash = Math.max(0, this.damageFlash - dt * 2.2);
     this.o.vignette.style.opacity = String(this.damageFlash * 0.85);
@@ -1734,7 +1496,7 @@ export class Game {
     let d = this.decals.find((x) => !x.active);
     if (!d) d = this.decals.reduce((a, b) => (a.life < b.life ? a : b));
     d.active = true;
-    d.life = 14;
+    d.life = KILL.DECAL_LIFE;
     d.mesh.visible = true;
     d.mesh.position.set(at.x + (Math.random() - 0.5) * 0.6, DECK_Y + 0.035, at.z + (Math.random() - 0.5) * 0.6);
     d.mesh.rotation.z = Math.random() * Math.PI;
@@ -1823,7 +1585,7 @@ export class Game {
     const cy = H / 2;
     c.save();
     c.scale(1, 1);
-    const gap = (8 + this.bloom * 1200) * dpr;
+    const gap = (BLOOM.CROSSHAIR_GAP + this.bloom * BLOOM.CROSSHAIR_SCALE) * dpr;
     const len = 11 * dpr;
     c.lineWidth = 2 * dpr;
     c.strokeStyle = this.focusActive ? "rgba(47,230,176,0.95)" : "rgba(239,230,212,0.92)";
@@ -1900,7 +1662,7 @@ export class Game {
       score: this.score,
       best: this.best,
       combo: this.combo,
-      comboFrac: Math.max(0, this.comboT / 2.6),
+      comboFrac: Math.max(0, this.comboT / KILL.COMBO_WINDOW),
       wave: this.wave,
       enemiesLeft,
       waveState: this.waveState,
@@ -1909,51 +1671,4 @@ export class Game {
   }
 }
 
-/* ---------------- shared helpers ---------------- */
-function resolveColliders(pos: THREE.Vector3, r: number, colliders: AABB[]) {
-  for (const b of colliders) {
-    const nx = Math.max(b.x1, Math.min(pos.x, b.x2));
-    const nz = Math.max(b.z1, Math.min(pos.z, b.z2));
-    const dx = pos.x - nx;
-    const dz = pos.z - nz;
-    const d2 = dx * dx + dz * dz;
-    if (d2 < r * r) {
-      if (d2 > 0.000001) {
-        const d = Math.sqrt(d2);
-        pos.x = nx + (dx / d) * r;
-        pos.z = nz + (dz / d) * r;
-      } else {
-        const pl = pos.x - b.x1;
-        const pr = b.x2 - pos.x;
-        const pt = pos.z - b.z1;
-        const pb = b.z2 - pos.z;
-        const m = Math.min(pl, pr, pt, pb);
-        if (m === pl) pos.x = b.x1 - r;
-        else if (m === pr) pos.x = b.x2 + r;
-        else if (m === pt) pos.z = b.z1 - r;
-        else pos.z = b.z2 + r;
-      }
-    }
-  }
-};
 
-function clampToBounds(pos: THREE.Vector3, r: number, rects: AABB[]) {
-  // inside the union of the raw boxes -> free movement (rects sit inset from the visual walls)
-  for (const b of rects) {
-    if (pos.x >= b.x1 && pos.x <= b.x2 && pos.z >= b.z1 && pos.z <= b.z2) return;
-  }
-  // outside everything -> pull toward the nearest rect (inset by the body radius)
-  let best: { x: number; z: number; d: number } | null = null;
-  for (const b of rects) {
-    const cx = Math.max(b.x1 + r, Math.min(pos.x, b.x2 - r));
-    const cz = Math.max(b.z1 + r, Math.min(pos.z, b.z2 - r));
-    const dx = pos.x - cx;
-    const dz = pos.z - cz;
-    const d = dx * dx + dz * dz;
-    if (!best || d < best.d) best = { x: cx, z: cz, d };
-  }
-  if (best) {
-    pos.x = best.x;
-    pos.z = best.z;
-  }
-}

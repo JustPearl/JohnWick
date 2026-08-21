@@ -2,6 +2,18 @@ import * as THREE from "three";
 
 export const DECK_Y = 8;
 
+/* structural layout — walls, bounds and the helipad derive from these */
+export const LAYOUT = {
+  DECK_W: 48, // main deck width  (x)
+  DECK_D: 34, // main deck depth  (z)
+  PAD_W: 20, // helipad side
+  PAD_X: 34, // helipad center x
+  WALL_T: 0.35, // kick-wall thickness
+  WALL_IN: 0.15, // walls sit this far inside the deck edge
+  DOOR_HALF: 9.2, // half width of the deck→pad doorway
+  BOUND_INSET: 0.8, // movement bounds inset from walls
+} as const;
+
 export interface AABB {
   x1: number;
   z1: number;
@@ -272,19 +284,21 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     return m;
   };
 
-  mkBox(48, 1.4, 34, deckTop, 0, DECK_Y - 0.7, 0);
+  const HW = LAYOUT.DECK_W / 2; // deck half width  (24)
+  const HD = LAYOUT.DECK_D / 2; // deck half depth  (17)
+  mkBox(LAYOUT.DECK_W, 1.4, LAYOUT.DECK_D, deckTop, 0, DECK_Y - 0.7, 0);
   // deck understructure
-  mkBox(46, 1.6, 32, deckSide, 0, DECK_Y - 2.1, 0);
+  mkBox(LAYOUT.DECK_W - 2, 1.6, LAYOUT.DECK_D - 2, deckSide, 0, DECK_Y - 2.1, 0);
   // hazard-striped edge trims
   const hazardMat = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
   hazardMat.map!.repeat.set(14, 1);
-  mkBox(48.3, 0.18, 0.55, hazardMat, 0, DECK_Y - 0.05, -17.1);
+  mkBox(LAYOUT.DECK_W + 0.3, 0.18, 0.55, hazardMat, 0, DECK_Y - 0.05, -(HD + 0.1));
   const hazardMat2 = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
   hazardMat2.map!.repeat.set(14, 1);
-  mkBox(48.3, 0.18, 0.55, hazardMat2, 0, DECK_Y - 0.05, 17.1);
+  mkBox(LAYOUT.DECK_W + 0.3, 0.18, 0.55, hazardMat2, 0, DECK_Y - 0.05, HD + 0.1);
   const hazardMat3 = new THREE.MeshToonMaterial({ map: hazardTex.clone() });
   hazardMat3.map!.repeat.set(10, 1);
-  mkBox(0.55, 0.18, 34.3, hazardMat3, -24.1, DECK_Y - 0.05, 0);
+  mkBox(0.55, 0.18, LAYOUT.DECK_D + 0.3, hazardMat3, -(HW + 0.1), DECK_Y - 0.05, 0);
 
   // grating insets + faded lane paint
   const grate = toon(0x0f1e24);
@@ -305,13 +319,13 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const padTex = deckTex.clone();
   padTex.repeat.set(2.5, 2.5);
   const pad = new THREE.MeshToonMaterial({ map: padTex, color: 0x7e939c });
-  mkBox(20, 1.0, 20, pad, 34, DECK_Y - 0.5, 0);
+  mkBox(LAYOUT.PAD_W, 1.0, LAYOUT.PAD_W, pad, LAYOUT.PAD_X, DECK_Y - 0.5, 0);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(5.6, 6.4, 36),
     toon(0xffd23f, 0xffd23f, 0.55)
   );
   ring.rotation.x = -Math.PI / 2;
-  ring.position.set(34, DECK_Y + 0.06, 0);
+  ring.position.set(LAYOUT.PAD_X, DECK_Y + 0.06, 0);
   world.add(ring);
   const hMat = toon(0xffd23f, 0xffd23f, 0.55);
   mkBox(0.9, 0.08, 4.4, hMat, 32.6, DECK_Y + 0.07, 0);
@@ -321,10 +335,10 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   const lampBulb = toon(0xff5a2a, 0xff5a2a, 1.4);
   const padLamps: THREE.Mesh[] = [];
   for (const [lx, lz] of [
-    [24.8, -9.4],
-    [43.2, -9.4],
-    [43.2, 9.4],
-    [24.8, 9.4],
+    [LAYOUT.PAD_X - LAYOUT.DOOR_HALF, -(LAYOUT.DOOR_HALF + 0.2)],
+    [LAYOUT.PAD_X + LAYOUT.DOOR_HALF, -(LAYOUT.DOOR_HALF + 0.2)],
+    [LAYOUT.PAD_X + LAYOUT.DOOR_HALF, LAYOUT.DOOR_HALF + 0.2],
+    [LAYOUT.PAD_X - LAYOUT.DOOR_HALF, LAYOUT.DOOR_HALF + 0.2],
   ] as const) {
     const b = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 8), lampBulb.clone());
     b.position.set(lx, DECK_Y + 0.35, lz);
@@ -604,20 +618,23 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     mkBox(w, 1.0, d, wallMat, x, DECK_Y + 0.5, z);
     mkBox(w, 0.12, d, wallTop, x, DECK_Y + 1.02, z);
   };
-  mkWall(48, 0.35, 0, -16.85);
-  mkWall(48, 0.35, 0, 16.85);
-  mkWall(0.35, 34, -23.85, 0);
-  // east wall split to leave the helipad walkway open (z -9.2 .. 9.2)
-  mkWall(0.35, 7.8, 23.85, -13.1);
-  mkWall(0.35, 7.8, 23.85, 13.1);
+  const wx = HW - LAYOUT.WALL_IN; // wall centerline x
+  const wz = HD - LAYOUT.WALL_IN; // wall centerline z
+  mkWall(LAYOUT.DECK_W, LAYOUT.WALL_T, 0, -wz);
+  mkWall(LAYOUT.DECK_W, LAYOUT.WALL_T, 0, wz);
+  mkWall(LAYOUT.WALL_T, LAYOUT.DECK_D, -wx, 0);
+  // east wall split to leave the helipad walkway open (z -DOOR_HALF .. DOOR_HALF)
+  const segD = wz - LAYOUT.DOOR_HALF;
+  mkWall(LAYOUT.WALL_T, segD, wx, -(LAYOUT.DOOR_HALF + segD / 2));
+  mkWall(LAYOUT.WALL_T, segD, wx, LAYOUT.DOOR_HALF + segD / 2);
   // hazard posts marking the doorway
-  for (const gz of [-9.2, 9.2]) {
-    mkBox(0.36, 1.25, 0.36, wallTop, 23.85, DECK_Y + 0.62, gz, true);
+  for (const gz of [-LAYOUT.DOOR_HALF, LAYOUT.DOOR_HALF]) {
+    mkBox(0.36, 1.25, 0.36, wallTop, wx, DECK_Y + 0.62, gz, true);
   }
   // helipad walls (outer edges only, leaving gap to deck)
-  mkWall(20, 0.35, 34, -9.85);
-  mkWall(20, 0.35, 34, 9.85);
-  mkWall(0.35, 20, 43.85, 0);
+  mkWall(LAYOUT.PAD_W, LAYOUT.WALL_T, LAYOUT.PAD_X, -(LAYOUT.DOOR_HALF + 0.65));
+  mkWall(LAYOUT.PAD_W, LAYOUT.WALL_T, LAYOUT.PAD_X, LAYOUT.DOOR_HALF + 0.65);
+  mkWall(LAYOUT.WALL_T, LAYOUT.PAD_W, LAYOUT.PAD_X + LAYOUT.PAD_W / 2 - LAYOUT.WALL_IN, 0);
 
   /* ---------------- spawn points ---------------- */
   const spawnPoints: THREE.Vector3[] = [];
@@ -634,9 +651,10 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   spawnPoints.push(new THREE.Vector3(34, DECK_Y, -8.6));
   spawnPoints.push(new THREE.Vector3(34, DECK_Y, 8.6));
 
+  const bi = LAYOUT.BOUND_INSET;
   const boundaryRects: AABB[] = [
-    { x1: -23.2, z1: -16.2, x2: 23.2, z2: 16.2 },
-    { x1: 23.2, z1: -9.2, x2: 43.2, z2: 9.2 },
+    { x1: -(HW - bi), z1: -(HD - bi), x2: HW - bi, z2: HD - bi },
+    { x1: HW - bi, z1: -LAYOUT.DOOR_HALF, x2: LAYOUT.PAD_X + LAYOUT.PAD_W / 2 - bi, z2: LAYOUT.DOOR_HALF },
   ];
 
   /* ---------------- animated bits ---------------- */

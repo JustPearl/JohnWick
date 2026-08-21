@@ -92,7 +92,7 @@ export interface Enemy {
   range: number;
   desired: number;
   dmg: number;
-  state: "spawn" | "chase" | "windup" | "dying";
+  state: "spawn" | "chase" | "windup" | "lunge" | "dying";
   stateT: number;
   fireCd: number;
   strafePhase: number;
@@ -101,6 +101,8 @@ export interface Enemy {
   windPhase: number;
   burstLeft: number;
   slide?: THREE.Vector3;
+  lungeDir?: THREE.Vector3;
+  lungeHit?: boolean;
 }
 
 export const ENEMY = {
@@ -117,6 +119,12 @@ export const ENEMY = {
   FIRE_CD_MIN: 1,
   FIRE_CD_VAR: 1.2,
   DESIRED: { rusher: 1.25, heavyBase: 8, heavyVar: 4, thugBase: 9, thugVar: 7 },
+  LUNGE_RANGE: 2.1,
+  LUNGE_SPEED: 13,
+  LUNGE_DUR: 0.24,
+  LUNGE_HIT_R: 1.25,
+  LUNGE_RECOVER: 1.15,
+  PUSH_MIN_GAP: 0.12,
 } as const;
 
 /* ================= player ================= */

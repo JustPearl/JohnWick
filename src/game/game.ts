@@ -575,6 +575,37 @@ export class Game {
     const dist = toPlayer.length();
     const dir = toPlayer.clone().normalize();
 
+    if (e.state === "lunge") {
+      e.stateT += dt;
+      e.group.position.addScaledVector(e.lungeDir!, ENEMY.LUNGE_SPEED * dt);
+      e.visorMat.emissiveIntensity = 2.4;
+      const sw = Math.sin(this.time * 26 + e.strafePhase) * 0.95;
+      e.legL.rotation.x = sw;
+      e.legR.rotation.x = -sw;
+      e.armR.rotation.x = -1.9; // blade thrust
+      const dxp = this.pos.x - e.group.position.x;
+      const dzp = this.pos.z - e.group.position.z;
+      if (!e.lungeHit && dxp * dxp + dzp * dzp < ENEMY.LUNGE_HIT_R * ENEMY.LUNGE_HIT_R) {
+        e.lungeHit = true;
+        this.damagePlayer(e.dmg);
+        // shove the player back along the blade's path
+        const dl = Math.sqrt(Math.max(dxp * dxp + dzp * dzp, 1e-4));
+        this.vel.x += (dxp / dl) * 4.5;
+        this.vel.z += (dzp / dl) * 4.5;
+      }
+      resolveColliders(e.group.position, ENEMY.RADIUS, this.world.colliders);
+      clampToBounds(e.group.position, ENEMY.RADIUS, this.world.boundaryRects);
+      this.pushOutFromPlayer(e);
+      e.blob.position.set(e.group.position.x, DECK_Y + 0.045, e.group.position.z);
+      if (e.stateT >= ENEMY.LUNGE_DUR || e.lungeHit) {
+        e.state = "chase";
+        e.fireCd = ENEMY.LUNGE_RECOVER;
+        e.visorMat.emissiveIntensity = 1.4;
+        e.armR.rotation.x = -1.35;
+      }
+      return;
+    }
+
     if (e.state === "windup") {
       e.stateT += dt;
       e.windPhase += dt * 26;
@@ -583,13 +614,13 @@ export class Game {
       const dur = e.type === "rusher" ? 0.34 : 0.5;
       if (e.stateT >= dur) {
         if (e.type === "rusher") {
-          // lunge
-          const dp = this.pos.clone().sub(e.group.position).setY(0).normalize();
-          e.group.position.addScaledVector(dp, 1.4);
-          if (this.pos.distanceTo(e.group.position) < 1.9) this.damagePlayer(e.dmg);
+          // snapshot a lunge direction — it becomes a dodgeable dash
+          const dp = this.pos.clone().sub(e.group.position).setY(0);
+          e.lungeDir = dp.lengthSq() > 1e-4 ? dp.normalize() : new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.group.rotation.y);
+          e.lungeHit = false;
+          e.state = "lunge";
+          e.stateT = 0;
           this.sfx.slide();
-          e.state = "chase";
-          e.fireCd = 1.2;
         } else {
           this.enemyShoot(e);
           if (e.type === "heavy") {
@@ -605,6 +636,7 @@ export class Game {
         e.visorMat.emissiveIntensity = 1.4;
         e.armR.rotation.x = -1.25;
       }
+      this.pushOutFromPlayer(e);
       return;
     }
 
@@ -613,8 +645,11 @@ export class Game {
     const strafeAmp = e.type === "rusher" ? 0.25 : 1.1;
     const perp = new THREE.Vector3(-dir.z, 0, dir.x).multiplyScalar(Math.sin(this.time * 1.7 + e.strafePhase) * strafeAmp);
     let move = new THREE.Vector3();
+    const contact = ENEMY.RADIUS + PLAYER.RADIUS + ENEMY.PUSH_MIN_GAP;
     if (e.type === "rusher") {
-      move.copy(dir).multiplyScalar(e.speed).add(perp);
+      // close to blade range, then circle at the edge — never walk inside the player
+      if (dist > contact + 0.35) move.copy(dir).multiplyScalar(e.speed).add(perp);
+      else move.copy(perp).multiplyScalar(e.speed * 0.85);
     } else if (dist > e.desired + 1.2) {
       move.copy(dir).multiplyScalar(e.speed).add(perp);
     } else if (dist < e.desired - 1.5) {
@@ -625,6 +660,7 @@ export class Game {
     e.group.position.addScaledVector(move, dt);
     resolveColliders(e.group.position, ENEMY.RADIUS, this.world.colliders);
     clampToBounds(e.group.position, ENEMY.RADIUS, this.world.boundaryRects);
+    this.pushOutFromPlayer(e);
 
     // face player
     const targetYaw = Math.atan2(dir.x, dir.z) + Math.PI;
@@ -666,6 +702,24 @@ export class Game {
         e.fireCd = 0.5;
       }
     }
+  }
+
+  /** Hard body collision: no enemy may occupy the player's circle. */
+  private pushOutFromPlayer(e: Enemy) {
+    const dx = e.group.position.x - this.pos.x;
+    const dz = e.group.position.z - this.pos.z;
+    const minD = ENEMY.RADIUS + PLAYER.RADIUS + ENEMY.PUSH_MIN_GAP;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= minD * minD) return;
+    const d = Math.sqrt(Math.max(d2, 1e-6));
+    const nx = dx / d;
+    const nz = dz / d;
+    const push = minD - d;
+    e.group.position.x += nx * push * 0.82;
+    e.group.position.z += nz * push * 0.82;
+    // the player feels the shoulder-check
+    this.vel.x -= nx * push * 2.4;
+    this.vel.z -= nz * push * 2.4;
   }
 
   private hasLOS(e: Enemy): boolean {

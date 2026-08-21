@@ -12,6 +12,24 @@ export const LAYOUT = {
   WALL_IN: 0.15, // walls sit this far inside the deck edge
   DOOR_HALF: 9.2, // half width of the deck→pad doorway
   BOUND_INSET: 0.8, // movement bounds inset from walls
+  /* crew quarters — west module */
+  Q_W: 16, // x extent (−40..−24)
+  Q_D: 18, // z extent (−9..9)
+  Q_X: -32, // center x
+  Q_DOOR_HALF: 5.5, // doorway in the west deck wall
+  /* process yard — south module */
+  P_W: 30, // x extent (−10..20)
+  P_D: 13, // z extent (17..30)
+  P_X: 5, // center x
+  P_Z: 23.5, // center z
+  P_DOOR_X1: -1, // doorway in the south deck wall
+  P_DOOR_X2: 13,
+  /* tank farm — north module */
+  T_W: 32, // x extent (−16..16)
+  T_D: 13, // z extent (−30..−17)
+  T_X: 0, // center x
+  T_Z: -23.5, // center z
+  T_DOOR_HALF: 7, // doorway in the north deck wall
 } as const;
 
 export interface AABB {
@@ -731,9 +749,28 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   };
   const wx = HW - LAYOUT.WALL_IN; // wall centerline x
   const wz = HD - LAYOUT.WALL_IN; // wall centerline z
-  mkWall(LAYOUT.DECK_W, LAYOUT.WALL_T, 0, -wz);
-  mkWall(LAYOUT.DECK_W, LAYOUT.WALL_T, 0, wz);
-  mkWall(LAYOUT.WALL_T, LAYOUT.DECK_D, -wx, 0);
+  // north wall split for the tank farm doorway (x −T_DOOR_HALF .. T_DOOR_HALF)
+  const nSeg = HW - LAYOUT.T_DOOR_HALF;
+  mkWall(nSeg, LAYOUT.WALL_T, -(LAYOUT.T_DOOR_HALF + nSeg / 2), -wz);
+  mkWall(nSeg, LAYOUT.WALL_T, LAYOUT.T_DOOR_HALF + nSeg / 2, -wz);
+  for (const gx of [-LAYOUT.T_DOOR_HALF, LAYOUT.T_DOOR_HALF]) {
+    mkBox(0.36, 1.25, 0.36, wallTop, gx, DECK_Y + 0.62, -wz, true);
+  }
+  // south wall split for the process yard doorway (x P_DOOR_X1 .. P_DOOR_X2)
+  const sL = LAYOUT.P_DOOR_X1 + HW;
+  mkWall(sL, LAYOUT.WALL_T, -HW + sL / 2, wz);
+  const sR = HW - LAYOUT.P_DOOR_X2;
+  mkWall(sR, LAYOUT.WALL_T, HW - sR / 2, wz);
+  for (const gx of [LAYOUT.P_DOOR_X1, LAYOUT.P_DOOR_X2]) {
+    mkBox(0.36, 1.25, 0.36, wallTop, gx, DECK_Y + 0.62, wz, true);
+  }
+  // west wall split for the crew quarters doorway (z −Q_DOOR_HALF .. Q_DOOR_HALF)
+  const wSeg = HD - LAYOUT.Q_DOOR_HALF;
+  mkWall(LAYOUT.WALL_T, wSeg, -wx, -(LAYOUT.Q_DOOR_HALF + wSeg / 2));
+  mkWall(LAYOUT.WALL_T, wSeg, -wx, LAYOUT.Q_DOOR_HALF + wSeg / 2);
+  for (const gz of [-LAYOUT.Q_DOOR_HALF, LAYOUT.Q_DOOR_HALF]) {
+    mkBox(0.36, 1.25, 0.36, wallTop, -wx, DECK_Y + 0.62, gz, true);
+  }
   // east wall split to leave the helipad walkway open (z -DOOR_HALF .. DOOR_HALF)
   const segD = wz - LAYOUT.DOOR_HALF;
   mkWall(LAYOUT.WALL_T, segD, wx, -(LAYOUT.DOOR_HALF + segD / 2));
@@ -746,6 +783,207 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   mkWall(LAYOUT.PAD_W, LAYOUT.WALL_T, LAYOUT.PAD_X, -(LAYOUT.DOOR_HALF + 0.65));
   mkWall(LAYOUT.PAD_W, LAYOUT.WALL_T, LAYOUT.PAD_X, LAYOUT.DOOR_HALF + 0.65);
   mkWall(LAYOUT.WALL_T, LAYOUT.PAD_W, LAYOUT.PAD_X + LAYOUT.PAD_W / 2 - LAYOUT.WALL_IN, 0);
+
+  /* ---------------- tactical cover kit ---------------- */
+  const concreteMat = toon(0x7d8388);
+  const concreteDark = toon(0x5c6266);
+  const bagMat = toon(0x6b6a4e);
+  const qWood = toon(0x6d5836);
+  const qCrate = toon(0x5f6b3a);
+  const jersey = (x: number, z: number, alongX: boolean) => {
+    const w = alongX ? 2.2 : 0.7;
+    const d = alongX ? 0.7 : 2.2;
+    mkBox(w, 1.0, d, concreteMat, x, DECK_Y + 0.5, z, true);
+    mkBox(w * 0.92, 0.14, d * 0.92, concreteDark, x, DECK_Y + 0.55, z);
+  };
+  const sandbags = (x: number, z: number, alongX: boolean) => {
+    const w = alongX ? 2.6 : 0.95;
+    const d = alongX ? 0.95 : 2.6;
+    mkBox(w, 0.95, d, bagMat, x, DECK_Y + 0.47, z, true);
+    mkBox(w * 0.72, 0.42, d * 0.72, bagMat, x, DECK_Y + 1.08, z, true);
+  };
+  const crates = (x: number, z: number) => {
+    mkBox(2.2, 0.16, 2.2, qWood, x, DECK_Y + 0.08, z);
+    mkBox(1.7, 1.0, 1.7, qCrate, x, DECK_Y + 0.66, z, true);
+    mkBox(1.1, 0.75, 1.1, qWood, x + 0.15, DECK_Y + 1.55, z - 0.1, true);
+  };
+  const moduleLamp = (x: number, z: number) => {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 6, 6), toon(0x3c4c52));
+    post.position.set(x, DECK_Y + 3, z);
+    world.add(post);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.5), toon(0xffc46a, 0xffc46a, 1.4));
+    head.position.set(x, DECK_Y + 6.05, z);
+    world.add(head);
+    const pl = new THREE.PointLight(0xffb066, 22, 24, 1.8);
+    pl.position.set(x, DECK_Y + 5.6, z);
+    world.add(pl);
+    colliders.push({ x1: x - 0.25, z1: z - 0.25, x2: x + 0.25, z2: z + 0.25 });
+  };
+  const moduleLegs = (cx: number, cz: number, hw: number, hd: number) => {
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 1.05, DECK_Y - 1, 8), toon(0x22343c));
+        leg.position.set(cx + sx * (hw - 1.6), (DECK_Y - 1) / 2 - 0.5, cz + sz * (hd - 1.6));
+        world.add(leg);
+      }
+    }
+  };
+  const gantry = (x: number, z: number, alongX: boolean, span: number) => {
+    const w = alongX ? span : 0.7;
+    const d = alongX ? 0.7 : span;
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(w, 0.7, d), toon(0x8f3d16));
+    beam.position.set(x, DECK_Y + 4.35, z);
+    world.add(beam);
+    const stripe = new THREE.Mesh(new THREE.BoxGeometry(w * 1.01, 0.16, d * 1.01), toon(0xffd23f, 0xffd23f, 0.25));
+    stripe.position.set(x, DECK_Y + 4.62, z);
+    world.add(stripe);
+  };
+
+  /* ---------------- crew quarters (west module) ---------------- */
+  mkBox(LAYOUT.Q_W, 1.4, LAYOUT.Q_D, deckTop, LAYOUT.Q_X, DECK_Y - 0.7, 0);
+  mkBox(LAYOUT.Q_W - 2, 1.6, LAYOUT.Q_D - 2, deckSide, LAYOUT.Q_X, DECK_Y - 2.1, 0);
+  const qIn = LAYOUT.WALL_IN;
+  mkWall(LAYOUT.Q_W, LAYOUT.WALL_T, LAYOUT.Q_X, -(LAYOUT.Q_D / 2 - qIn));
+  mkWall(LAYOUT.Q_W, LAYOUT.WALL_T, LAYOUT.Q_X, LAYOUT.Q_D / 2 - qIn);
+  mkWall(LAYOUT.WALL_T, LAYOUT.Q_D, LAYOUT.Q_X - LAYOUT.Q_W / 2 + qIn, 0);
+  mkBox(LAYOUT.Q_W + 0.3, 0.18, 0.55, hazardMat2, LAYOUT.Q_X, DECK_Y - 0.05, -(LAYOUT.Q_D / 2 + 0.1));
+  mkBox(0.55, 0.18, LAYOUT.Q_D + 0.3, hazardMat3, LAYOUT.Q_X - LAYOUT.Q_W / 2 - 0.1, DECK_Y - 0.05, 0);
+  moduleLegs(LAYOUT.Q_X, 0, LAYOUT.Q_W / 2, LAYOUT.Q_D / 2);
+  gantry(-wx, 0, false, LAYOUT.Q_DOOR_HALF * 2 + 1.6);
+  // LQ block
+  const lq = new THREE.Group();
+  lq.position.set(-35, DECK_Y, -4.5);
+  world.add(lq);
+  const lqBody = new THREE.Mesh(new THREE.BoxGeometry(8, 4.8, 6), toon(0x355861));
+  lqBody.position.y = 2.4;
+  lq.add(lqBody);
+  const lqRoof = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.4, 6.5), toon(0x9c4a1c));
+  lqRoof.position.y = 5;
+  lq.add(lqRoof);
+  for (const wz2 of [-1.8, 0.2, 2.2]) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.9, 1.1), toon(0xffd9a0, 0xffd9a0, 0.9));
+    win.position.set(4.02, 3, wz2);
+    lq.add(win);
+  }
+  const lqDoor = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.6, 1.5), toon(0xffb03a, 0xffb03a, 0.9));
+  lqDoor.position.set(4.02, 1.3, -2.2);
+  lq.add(lqDoor);
+  colliders.push({ x1: -39.2, z1: -7.7, x2: -30.8, z2: -1.3 });
+  solids.push(lqBody);
+  // workshop shed
+  mkBox(5, 3, 4, toon(0x4a5a50), -33, DECK_Y + 1.5, 6.2, true);
+  mkBox(5.4, 0.3, 4.4, toon(0x2f3d36), -33, DECK_Y + 3.1, 6.2);
+  // cover
+  sandbags(-26.5, 2.5, false);
+  crates(-28.5, -6.5);
+  jersey(-25.5, -3.5, false);
+  moduleLamp(-27, 0);
+
+  /* ---------------- process yard (south module) ---------------- */
+  mkBox(LAYOUT.P_W, 1.4, LAYOUT.P_D, deckTop, LAYOUT.P_X, DECK_Y - 0.7, LAYOUT.P_Z);
+  mkBox(LAYOUT.P_W - 2, 1.6, LAYOUT.P_D - 2, deckSide, LAYOUT.P_X, DECK_Y - 2.1, LAYOUT.P_Z);
+  mkWall(LAYOUT.WALL_T, LAYOUT.P_D, LAYOUT.P_X - LAYOUT.P_W / 2 + qIn, LAYOUT.P_Z);
+  mkWall(LAYOUT.WALL_T, LAYOUT.P_D, LAYOUT.P_X + LAYOUT.P_W / 2 - qIn, LAYOUT.P_Z);
+  mkWall(LAYOUT.P_W, LAYOUT.WALL_T, LAYOUT.P_X, LAYOUT.P_Z + LAYOUT.P_D / 2 - qIn);
+  mkBox(LAYOUT.P_W + 0.3, 0.18, 0.55, hazardMat, LAYOUT.P_X, DECK_Y - 0.05, LAYOUT.P_Z + LAYOUT.P_D / 2 + 0.1);
+  mkBox(0.55, 0.18, LAYOUT.P_D + 0.3, hazardMat3, LAYOUT.P_X + LAYOUT.P_W / 2 + 0.1, DECK_Y - 0.05, LAYOUT.P_Z);
+  moduleLegs(LAYOUT.P_X, LAYOUT.P_Z, LAYOUT.P_W / 2, LAYOUT.P_D / 2);
+  gantry((LAYOUT.P_DOOR_X1 + LAYOUT.P_DOOR_X2) / 2, wz, true, LAYOUT.P_DOOR_X2 - LAYOUT.P_DOOR_X1 + 1.6);
+  // horizontal separator vessels
+  const vesselMat = toon(0x48606a);
+  const vessel = (vx: number, vz: number) => {
+    const v = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 8, 12), vesselMat);
+    v.rotation.z = Math.PI / 2;
+    v.position.set(vx, DECK_Y + 1.85, vz);
+    world.add(v);
+    for (const dx of [-3.2, 3.2]) {
+      mkBox(0.7, 1.0, 2.9, concreteDark, vx + dx, DECK_Y + 0.5, vz);
+    }
+    const cap1 = new THREE.Mesh(new THREE.SphereGeometry(1.35, 12, 8), vesselMat);
+    cap1.scale.set(0.35, 1, 1);
+    cap1.position.set(vx - 4, DECK_Y + 1.85, vz);
+    world.add(cap1);
+    const cap2 = cap1.clone();
+    cap2.position.x = vx + 4;
+    world.add(cap2);
+    colliders.push({ x1: vx - 4.4, z1: vz - 1.55, x2: vx + 4.4, z2: vz + 1.55 });
+    solids.push(v);
+  };
+  vessel(0, 21);
+  vessel(8, 26.2);
+  // tall column vessel
+  const column = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 10, 12), toon(0x5a7078));
+  column.position.set(16.5, DECK_Y + 5, 21);
+  world.add(column);
+  const colTop = new THREE.Mesh(new THREE.SphereGeometry(1.15, 12, 8), toon(0x5a7078));
+  colTop.position.set(16.5, DECK_Y + 10, 21);
+  world.add(colTop);
+  colliders.push({ x1: 15.2, z1: 19.7, x2: 17.8, z2: 22.3 });
+  solids.push(column);
+  // manifold skids
+  mkBox(3.2, 1.1, 1.3, toon(0x37474e), -6, DECK_Y + 0.55, 25, true);
+  mkBox(3.2, 1.1, 1.3, toon(0x37474e), 3, DECK_Y + 0.55, 28.4, true);
+  const valve = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.3, 1.4, 8), toon(0xc65a17));
+  valve.position.set(-6, DECK_Y + 1.7, 25);
+  world.add(valve);
+  // cover
+  jersey(-2, 18.9, true);
+  jersey(11.5, 23.6, false);
+  sandbags(-7.5, 28.2, true);
+  moduleLamp(1, 24.5);
+
+  /* ---------------- tank farm (north module) ---------------- */
+  mkBox(LAYOUT.T_W, 1.4, LAYOUT.T_D, deckTop, LAYOUT.T_X, DECK_Y - 0.7, LAYOUT.T_Z);
+  mkBox(LAYOUT.T_W - 2, 1.6, LAYOUT.T_D - 2, deckSide, LAYOUT.T_X, DECK_Y - 2.1, LAYOUT.T_Z);
+  mkWall(LAYOUT.WALL_T, LAYOUT.T_D, LAYOUT.T_X - LAYOUT.T_W / 2 + qIn, LAYOUT.T_Z);
+  mkWall(LAYOUT.WALL_T, LAYOUT.T_D, LAYOUT.T_X + LAYOUT.T_W / 2 - qIn, LAYOUT.T_Z);
+  mkWall(LAYOUT.T_W, LAYOUT.WALL_T, LAYOUT.T_X, LAYOUT.T_Z - LAYOUT.T_D / 2 + qIn);
+  mkBox(LAYOUT.T_W + 0.3, 0.18, 0.55, hazardMat, LAYOUT.T_X, DECK_Y - 0.05, LAYOUT.T_Z - LAYOUT.T_D / 2 - 0.1);
+  mkBox(0.55, 0.18, LAYOUT.T_D + 0.3, hazardMat2, LAYOUT.T_X - LAYOUT.T_W / 2 - 0.1, DECK_Y - 0.05, LAYOUT.T_Z);
+  mkBox(0.55, 0.18, LAYOUT.T_D + 0.3, hazardMat3, LAYOUT.T_X + LAYOUT.T_W / 2 + 0.1, DECK_Y - 0.05, LAYOUT.T_Z);
+  moduleLegs(LAYOUT.T_X, LAYOUT.T_Z, LAYOUT.T_W / 2, LAYOUT.T_D / 2);
+  gantry(0, -wz, true, LAYOUT.T_DOOR_HALF * 2 + 1.6);
+  // storage tanks
+  const tankMat = toon(0x54666e);
+  const tank = (tx: number, tz: number) => {
+    const t = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 6, 14), tankMat);
+    t.position.set(tx, DECK_Y + 3, tz);
+    world.add(t);
+    const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.58, 1.58, 0.3, 14), toon(0x2f3d44));
+    rim.position.set(tx, DECK_Y + 6, tz);
+    world.add(rim);
+    const vent = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.5), toon(0x22343c));
+    vent.position.set(tx + 0.6, DECK_Y + 6.4, tz);
+    world.add(vent);
+    colliders.push({ x1: tx - 1.65, z1: tz - 1.65, x2: tx + 1.65, z2: tz + 1.65 });
+    solids.push(t);
+  };
+  tank(-9, -21.5);
+  tank(-9, -26.3);
+  tank(9, -21.5);
+  tank(9, -26.3);
+  // pipe spool stack
+  const spoolMat = toon(0x8b9aa0);
+  for (const [sx, sy, sz] of [[-0.7, 0.62, 0], [0.7, 0.62, 0], [0, 1.75, 0]] as const) {
+    const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 4.4, 10), spoolMat);
+    sp.rotation.z = Math.PI / 2;
+    sp.position.set(sx, DECK_Y + sy, LAYOUT.T_Z + sz);
+    world.add(sp);
+  }
+  colliders.push({ x1: -2.4, z1: LAYOUT.T_Z - 1.1, x2: 2.4, z2: LAYOUT.T_Z + 1.1 });
+  // cover
+  jersey(-3.5, -19.3, true);
+  jersey(4.5, -28.1, true);
+  sandbags(13.5, -24, false);
+  moduleLamp(-13, -24);
+
+  /* ---------------- main deck tactical cover ---------------- */
+  jersey(1, -3.5, true);
+  jersey(-4.5, -4.5, false);
+  jersey(8.5, 1.8, false);
+  sandbags(17.2, 0.5, false);
+  sandbags(-1, 10.8, true);
+  crates(-12.5, 3.5);
 
   /* ---------------- spawn points ---------------- */
   const spawnPoints: THREE.Vector3[] = [];
@@ -761,11 +999,26 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
   spawnPoints.push(new THREE.Vector3(42.6, DECK_Y, 6));
   spawnPoints.push(new THREE.Vector3(34, DECK_Y, -8.6));
   spawnPoints.push(new THREE.Vector3(34, DECK_Y, 8.6));
+  // crew quarters
+  for (const sx of [-37.5, -31, -26]) spawnPoints.push(new THREE.Vector3(sx, DECK_Y, -7.7));
+  for (const sx of [-36, -28]) spawnPoints.push(new THREE.Vector3(sx, DECK_Y, 7.7));
+  spawnPoints.push(new THREE.Vector3(-38.7, DECK_Y, 3));
+  // process yard
+  for (const sx of [-7, 2, 11]) spawnPoints.push(new THREE.Vector3(sx, DECK_Y, 28.7));
+  spawnPoints.push(new THREE.Vector3(18.7, DECK_Y, 24));
+  spawnPoints.push(new THREE.Vector3(-8.7, DECK_Y, 26));
+  // tank farm
+  for (const sx of [-12, 0, 12]) spawnPoints.push(new THREE.Vector3(sx, DECK_Y, -28.7));
+  spawnPoints.push(new THREE.Vector3(-14.7, DECK_Y, -20.5));
+  spawnPoints.push(new THREE.Vector3(14.7, DECK_Y, -27));
 
   const bi = LAYOUT.BOUND_INSET;
   const boundaryRects: AABB[] = [
     { x1: -(HW - bi), z1: -(HD - bi), x2: HW - bi, z2: HD - bi },
     { x1: HW - bi, z1: -LAYOUT.DOOR_HALF, x2: LAYOUT.PAD_X + LAYOUT.PAD_W / 2 - bi, z2: LAYOUT.DOOR_HALF },
+    { x1: LAYOUT.Q_X - LAYOUT.Q_W / 2 + bi, z1: -(LAYOUT.Q_D / 2 - bi), x2: -(HW - bi), z2: LAYOUT.Q_D / 2 - bi },
+    { x1: LAYOUT.P_X - LAYOUT.P_W / 2 + bi, z1: HD - bi, x2: LAYOUT.P_X + LAYOUT.P_W / 2 - bi, z2: LAYOUT.P_Z + LAYOUT.P_D / 2 - bi },
+    { x1: LAYOUT.T_X - LAYOUT.T_W / 2 + bi, z1: LAYOUT.T_Z - LAYOUT.T_D / 2 + bi, x2: LAYOUT.T_X + LAYOUT.T_W / 2 - bi, z2: -(HD - bi) },
   ];
 
   /* ---------------- animated bits ---------------- */
@@ -806,6 +1059,12 @@ export function buildWorld(scene: THREE.Scene): WorldRefs {
     [19.4, 14.7, 0, true, false],
     [22, -13, 2, false, false],
     [-6.5, 14.2, 3, false, false],
+    [-26.5, -6, 0, false, true],
+    [-29.5, 3.2, 2, false, true],
+    [14.5, 27.6, 0, false, true],
+    [-6.5, 21.5, 1, false, true],
+    [3.5, -21, 0, false, true],
+    [-13, -27.5, 2, false, true],
   ];
   const barrels: BarrelRef[] = [];
   for (const [bx, bz, ci, tipped, explosive] of barrelAt) {

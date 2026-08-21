@@ -191,7 +191,7 @@ export class Game {
   private killT = 0;
   private vmGroups: THREE.Group[] = [];
   private muzzleObj: THREE.Object3D[] = [];
-  private muzzleFlashes: THREE.Mesh[] = [];
+  private muzzleFlashes: THREE.Group[] = [];
   private muzzleLight!: THREE.PointLight;
   private vmBase: THREE.Vector3[] = [];
   private flashBase: number[] = [];
@@ -855,14 +855,18 @@ export class Game {
     this.rollKick = (Math.random() - 0.5) * RECOIL.ROLL_PER_KICK * w.def.kick;
     this.bloom = Math.min(BLOOM.CAP, this.bloom + w.def.spread * BLOOM.SPREAD_MULT + w.def.kick * BLOOM.KICK_MULT);
     this.shake = Math.min(1, this.shake + 0.1 + w.def.kick * 0.08);
-    this.muzzleT = 0.05;
-    this.muzzleLight.intensity = 26;
+    this.muzzleT = RECOIL.FLASH_T;
+    this.muzzleLight.intensity = 30 * this.flashBase[this.slot];
 
     const muzzleW = new THREE.Vector3();
     this.muzzleObj[this.slot].getWorldPosition(muzzleW);
     const flash = this.muzzleFlashes[this.slot];
     flash.rotation.z = Math.random() * Math.PI;
-    flash.scale.setScalar((0.8 + w.def.kick * 0.5) * this.flashBase[this.slot]);
+    const s = (0.75 + w.def.kick * 0.55) * this.flashBase[this.slot] * (0.85 + Math.random() * 0.3);
+    flash.scale.setScalar(s);
+    flash.userData.s0 = s;
+    flash.position.z = flash.userData.z0 as number;
+    (flash.userData.streak as THREE.Mesh).scale.set(0.7 + Math.random() * 0.8, 1, 1);
 
     let anyHit = false;
     const spread = w.def.spread + this.bloom;
@@ -1589,8 +1593,16 @@ export class Game {
     this.vmRecoil *= 1 - Math.min(1, dt * 11);
     this.vmLift += (0 - this.vmLift) * Math.min(1, dt * 10);
     this.muzzleT -= dt;
-    for (const f of this.muzzleFlashes) f.visible = this.muzzleT > 0;
-    this.muzzleLight.intensity *= 1 - Math.min(1, dt * 26);
+    for (const f of this.muzzleFlashes) {
+      const on = this.muzzleT > 0;
+      f.visible = on;
+      if (on) {
+        const k = this.muzzleT / RECOIL.FLASH_T;
+        f.scale.setScalar((f.userData.s0 as number) * (0.5 + 0.5 * k));
+        f.position.z = (f.userData.z0 as number) - (1 - k) * 0.07;
+      }
+    }
+    this.muzzleLight.intensity *= 1 - Math.min(1, dt * 22);
     this.hitT -= dt;
     this.killT -= dt;
     if (this.reloading > 0) {
@@ -1828,10 +1840,15 @@ export class Game {
     if (pd < BARREL.PLAYER_RADIUS) this.damagePlayer(BARREL.PLAYER_DMG * (1 - pd / BARREL.PLAYER_RADIUS));
     else if (pd < BARREL.RADIUS) this.shake = Math.min(1.6, this.shake + 0.4);
     this.popup(at.clone().setY(DECK_Y + 2.6), "FUEL DRUM", "text-ember");
-    // chain reaction
+    // chain reaction — mark as dead the moment it's queued, so each drum
+    // can only ever detonate once (otherwise a drum re-triggers itself forever)
     for (const ob of this.world.barrels) {
       if (!ob.alive) continue;
-      if (ob.pos.distanceTo(at) < BARREL.CHAIN_RADIUS) this.booms.push({ pos: ob.pos.clone(), t: BARREL.CHAIN_DELAY });
+      if (ob.pos.distanceTo(at) < BARREL.CHAIN_RADIUS) {
+        ob.alive = false;
+        ob.group.visible = false;
+        this.booms.push({ pos: ob.pos.clone(), t: BARREL.CHAIN_DELAY });
+      }
     }
   }
 

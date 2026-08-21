@@ -359,6 +359,7 @@ export const BLOOM = {
 
 /* ================= recoil / viewmodel kick ================= */
 export const RECOIL = {
+  FLASH_T: 0.055,
   VM_ADD: 0.09,
   VM_PER_KICK: 0.03,
   VM_CAP: 0.16,

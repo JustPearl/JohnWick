@@ -5,7 +5,7 @@ import { PAL } from "./config";
 export interface ViewModelRefs {
   groups: THREE.Group[];
   muzzle: THREE.Object3D[];
-  flashes: THREE.Mesh[];
+  flashes: THREE.Group[];
   base: THREE.Vector3[];
   flashBase: number[];
   light: THREE.PointLight;
@@ -14,18 +14,49 @@ export interface ViewModelRefs {
 export function buildViewModels(camera: THREE.PerspectiveCamera): ViewModelRefs {
   const groups: THREE.Group[] = [];
   const muzzle: THREE.Object3D[] = [];
-  const flashes: THREE.Mesh[] = [];
+  const flashes: THREE.Group[] = [];
   const base: THREE.Vector3[] = [];
   const flashBase: number[] = [];
 
-  const flashMat = new THREE.MeshBasicMaterial({
-    color: PAL.MUZZLE_FLASH,
-    transparent: true,
-    opacity: 0.95,
-    blending: THREE.AdditiveBlending,
-    depthWrite: false,
-    side: THREE.DoubleSide,
-  });
+  /* ---- layered muzzle flash: starburst + hot core + anamorphic streak + volume cone ---- */
+  const starShape = new THREE.Shape();
+  const spikes = 7;
+  for (let i = 0; i < spikes * 2; i++) {
+    const r = i % 2 === 0 ? 0.24 : 0.085;
+    const a = (i / (spikes * 2)) * Math.PI * 2 - Math.PI / 2;
+    const x = Math.cos(a) * r;
+    const y = Math.sin(a) * r;
+    if (i === 0) starShape.moveTo(x, y);
+    else starShape.lineTo(x, y);
+  }
+  starShape.closePath();
+  const starGeo = new THREE.ShapeGeometry(starShape);
+  const coreGeo = new THREE.CircleGeometry(0.09, 14);
+  const streakGeo = new THREE.PlaneGeometry(0.62, 0.05);
+  const coneGeo = new THREE.ConeGeometry(0.085, 0.42, 8, 1, true);
+  const add = (op: number, c: number) =>
+    new THREE.MeshBasicMaterial({
+      color: c,
+      transparent: true,
+      opacity: op,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+  const makeFlash = () => {
+    const fg = new THREE.Group();
+    const star = new THREE.Mesh(starGeo, add(0.95, PAL.MUZZLE_FLASH));
+    const core = new THREE.Mesh(coreGeo, add(1, 0xfff4da));
+    core.position.z = 0.004;
+    const streak = new THREE.Mesh(streakGeo, add(0.5, 0xffd9a0));
+    streak.position.z = 0.002;
+    const cone = new THREE.Mesh(coneGeo, add(0.32, 0xff9a4a));
+    cone.rotation.x = -Math.PI / 2; // apex points downrange
+    cone.position.z = -0.28;
+    fg.add(star, core, streak, cone);
+    fg.userData.streak = streak;
+    return fg;
+  };
   const build = (
     fn: (g: THREE.Group) => THREE.Vector3,
     px = 0.34,
@@ -37,11 +68,12 @@ export function buildViewModels(camera: THREE.PerspectiveCamera): ViewModelRefs 
     const m = new THREE.Object3D();
     m.position.copy(fn(g));
     g.add(m);
-    const flash = new THREE.Mesh(new THREE.PlaneGeometry(0.34, 0.34), flashMat);
+    const flash = makeFlash();
     flash.position.copy(m.position);
     flash.position.z -= 0.1;
     flash.scale.setScalar(flashScale);
     flash.visible = false;
+    flash.userData.z0 = flash.position.z;
     g.add(flash);
     g.position.set(px, py, pz);
     g.visible = false;

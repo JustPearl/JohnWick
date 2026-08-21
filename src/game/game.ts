@@ -156,6 +156,7 @@ export class Game {
   /* roguelite perks */
   private ownedPerks: Record<string, number> = {};
   private perkChoices: string[] = [];
+  private perkOpenedAt = 0;
   private stat: {
     dmgMult: number;
     headMult: number;
@@ -1372,6 +1373,7 @@ export class Game {
       return;
     }
     this.perkChoices = picks.map((p) => p.id);
+    this.perkOpenedAt = this.time;
     this.screen = "perk";
     this.firing = false;
     this.wantFocus = false;
@@ -1384,6 +1386,11 @@ export class Game {
 
   choosePerk(index: number) {
     if (this.screen !== "perk") return;
+    // arm-lockout: ignore the trigger-happy click/keypress that ended the wave
+    if (this.time - this.perkOpenedAt < PERK_UI.LOCKOUT) {
+      this.sfx.dry();
+      return;
+    }
     const id = this.perkChoices[index];
     const perk = PERKS.find((p) => p.id === id);
     if (!perk) return;
@@ -1628,6 +1635,7 @@ export class Game {
     if (this.screen === "perk") {
       // world stays alive behind the perk picker; gameplay logic is frozen
       this.stepFx(dt, dt);
+      this.pushHud(); // keeps the arm-lockout countdown ticking in the UI
       this.renderer.render(this.scene, this.camera);
       return;
     }
@@ -2388,6 +2396,7 @@ export class Game {
       perkChoices: this.perkChoices,
       ownedPerks: { ...this.ownedPerks },
       unlocked: [...this.weaponUnlocked],
+      perkLockT: Math.max(0, PERK_UI.LOCKOUT - (this.time - this.perkOpenedAt)),
     });
   }
 }

@@ -43,6 +43,7 @@ export interface HudData {
   perkChoices: string[];
   ownedPerks: Record<string, number>;
   unlocked: boolean[];
+  perkLockT: number; // seconds left before the perk picker accepts input
 }
 
 export interface GameOptions {
@@ -117,6 +118,7 @@ export const PERKS: PerkDef[] = [
 export const PERK_UI = {
   CHOICES: 3,
   WEAPON_GUARANTEE_WAVE: 2, // guarantee a weapon unlock offer through this wave
+  LOCKOUT: 0.6, // seconds the picker stays un-clickable after appearing
 } as const;
 
 /* ================= enemies ================= */

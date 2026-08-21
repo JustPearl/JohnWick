@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Game, type HudData, type UiState } from "./game/game";
-import { PERKS, type PerkDef } from "./game/config";
+import { PERKS, PERK_UI, type PerkDef } from "./game/config";
 
 const DEFAULT_HUD: HudData = {
   hp: 100,
@@ -25,6 +25,7 @@ const DEFAULT_HUD: HudData = {
   perkChoices: [],
   ownedPerks: {},
   unlocked: [true, false, false],
+  perkLockT: 0,
 };
 
 const PERK_BY_ID: Record<string, PerkDef> = Object.fromEntries(PERKS.map((p) => [p.id, p]));
@@ -357,6 +358,8 @@ export default function App() {
   const hpLow = hud.hp <= 30;
   const ownedPerkList: PerkDef[] = PERKS.filter((p) => (hud.ownedPerks[p.id] || 0) > 0);
   const perkChoices: PerkDef[] = hud.perkChoices.map((id) => PERK_BY_ID[id]).filter(Boolean);
+  const arming = hud.perkLockT > 0;
+  const armFrac = Math.max(0, Math.min(1, 1 - hud.perkLockT / PERK_UI.LOCKOUT));
 
   return (
     <div className="fixed inset-0 bg-ink overflow-hidden font-hud text-bone" onClick={() => gameRef.current?.relockIfPlaying()}>
@@ -553,7 +556,11 @@ export default function App() {
               <div className="hidden md:block text-right font-hud text-[11px] font-semibold tracking-[0.25em] text-dim">
                 AMMO RESTOCKED · WOUND PATCHED
                 <br />
-                NEXT WAVE ON SELECTION
+                {arming ? (
+                  <span className="blink-hard text-amber">ARMING SUPPLY CACHE — STAND BY</span>
+                ) : (
+                  <span>NEXT WAVE ON SELECTION</span>
+                )}
               </div>
             </div>
 
@@ -561,11 +568,19 @@ export default function App() {
               {perkChoices.map((p, i) => (
                 <button
                   key={p.id}
+                  disabled={arming}
                   onClick={() => gameRef.current?.choosePerk(i)}
                   onMouseEnter={() => gameRef.current?.menuTick()}
-                  className={`hud-panel clip-panel group relative p-5 text-left transition-transform duration-150 hover:-translate-y-1.5 panel-in-r panel-d${i + 1}`}
+                  className={`hud-panel clip-panel group relative p-5 text-left transition-all duration-150 panel-in-r panel-d${i + 1} ${
+                    arming ? "cursor-default opacity-60 saturate-[0.6]" : "hover:-translate-y-1.5"
+                  }`}
                   style={{ borderColor: "rgba(255,176,58,0.28)" }}
                 >
+                  {/* arm sweep — fills while the picker is lock-armed */}
+                  <span
+                    className={`absolute left-0 top-0 h-[3px] bg-amber ${arming ? "" : "opacity-0"}`}
+                    style={{ width: `${armFrac * 100}%`, boxShadow: arming ? "0 0 12px rgba(255,176,58,0.8)" : "none" }}
+                  />
                   <div className="absolute right-3 top-3 clip-tag bg-ink px-2 py-0.5 font-display text-sm text-dim border border-line">
                     {i + 1}
                   </div>
@@ -598,7 +613,13 @@ export default function App() {
             </div>
 
             <div className="fade-late mt-4 text-center font-hud text-[11px] font-semibold tracking-[0.3em] text-dim/80">
-              PRESS <span className="text-amber">1 · 2 · 3</span> OR CLICK — THE SEA IS ALREADY SENDING MORE
+              {arming ? (
+                <span className="blink-hard text-amber/90">LOCKED — {hud.perkLockT.toFixed(1)}s</span>
+              ) : (
+                <>
+                  PRESS <span className="text-amber">1 · 2 · 3</span> OR CLICK — THE SEA IS ALREADY SENDING MORE
+                </>
+              )}
             </div>
           </div>
         </div>

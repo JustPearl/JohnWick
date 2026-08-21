@@ -6,6 +6,7 @@ import { buildViewModels } from "./viewmodels";
 import {
   WEAPONS,
   PAL,
+  RELOAD,
   PLAYER,
   FOCUS,
   BLOOM,
@@ -113,6 +114,9 @@ export class Game {
   private fireCd = 0;
   private reloading = 0;
   private reloadTotal = 1;
+  private staged = false;
+  private stagedLoaded = 0;
+  private stagedTotal = 0;
   private bloom = 0;
   private hitstop = 0;
   private fovPunch = 0;
@@ -774,7 +778,13 @@ export class Game {
   /* ================= combat ================= */
   private tryFire() {
     const w = this.weapons[this.slot];
-    if (this.reloading > 0 || this.fireCd > 0 || this.screen !== "playing") return;
+    if (this.screen !== "playing") return;
+    if (this.reloading > 0) {
+      // interrupt: fire what's already loaded (staged shells are kept)
+      if (w.mag <= 0) return; // nothing to fire — keep reloading
+      this.cancelReload();
+    }
+    if (this.fireCd > 0) return;
     if (w.mag <= 0) {
       this.sfx.dry();
       this.fireCd = 0.28;
@@ -1144,7 +1154,9 @@ export class Game {
   }
 
   private switchTo(i: number) {
-    if (i === this.slot || this.reloading > 0) return;
+    if (i === this.slot) return;
+    // weapon switch interrupts any reload; staged shells already racked in stay loaded
+    if (this.reloading > 0) this.cancelReload();
     this.slot = i;
     this.vmLift = -0.4;
     this.vmGroups.forEach((g, k) => (g.visible = k === i));
@@ -1154,9 +1166,25 @@ export class Game {
   private startReload() {
     const w = this.weapons[this.slot];
     if (this.reloading > 0 || w.mag >= w.def.magSize || w.reserve <= 0) return;
-    this.reloading = w.def.reloadTime;
-    this.reloadTotal = w.def.reloadTime;
+    this.staged = false;
+    this.stagedLoaded = 0;
+    if (w.def.kind === "shotgun") {
+      // staged: open pump, one shell per cycle, final pump
+      const n = Math.min(w.def.magSize - w.mag, w.reserve);
+      this.staged = true;
+      this.stagedTotal = n;
+      this.reloading = RELOAD.OPEN_PUMP + n * RELOAD.SHELL_TIME + RELOAD.FINAL_PUMP;
+    } else {
+      this.reloading = w.def.reloadTime;
+    }
+    this.reloadTotal = this.reloading;
     this.sfx.reload(0);
+  }
+
+  /** Interrupt the in-progress reload. Ammo already loaded (staged shells) is kept. */
+  private cancelReload() {
+    this.reloading = 0;
+    this.staged = false;
   }
 
   /* ================= flow ================= */
@@ -1239,6 +1267,9 @@ export class Game {
     this.slot = 0;
     this.vmGroups.forEach((g, k) => (g.visible = k === 0));
     this.reloading = 0;
+    this.staged = false;
+    this.stagedLoaded = 0;
+    this.stagedTotal = 0;
     this.score = 0;
     this.combo = 0;
     this.comboT = 0;
@@ -1509,16 +1540,33 @@ export class Game {
     if (this.reloading > 0) {
       const prev = this.reloading;
       this.reloading -= dt;
-      if (prev > this.reloadTotal * 0.45 && this.reloading <= this.reloadTotal * 0.45) {
-        if (this.weapons[this.slot].def.kind === "shotgun") this.sfx.slide();
-        else this.sfx.reload(1);
+      const w = this.weapons[this.slot];
+      if (this.staged) {
+        // each shell racks in OPEN_PUMP + i * SHELL_TIME into the reload
+        const elapsed = this.reloadTotal - this.reloading;
+        const want = Math.min(
+          this.stagedTotal,
+          Math.max(0, Math.floor((elapsed - RELOAD.OPEN_PUMP) / RELOAD.SHELL_TIME) + 1)
+        );
+        while (this.stagedLoaded < want && w.reserve > 0) {
+          this.stagedLoaded++;
+          w.mag++;
+          w.reserve--;
+          this.sfx.slide();
+        }
+      } else if (prev > this.reloadTotal * 0.45 && this.reloading <= this.reloadTotal * 0.45) {
+        this.sfx.reload(1);
       }
       if (this.reloading <= 0) {
-        const w = this.weapons[this.slot];
-        const need = w.def.magSize - w.mag;
-        const take = Math.min(need, w.reserve);
-        w.mag += take;
-        w.reserve -= take;
+        if (this.staged) this.sfx.slide(); // final pump
+        else {
+          const need = w.def.magSize - w.mag;
+          const take = Math.min(need, w.reserve);
+          w.mag += take;
+          w.reserve -= take;
+        }
+        this.staged = false;
+        this.reloading = 0;
       }
     }
     const vm = this.vmGroups[this.slot];

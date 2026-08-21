@@ -195,6 +195,12 @@ export const FOCUS = {
 } as const;
 
 /* ================= hip-fire bloom ================= */
+export const RELOAD = {
+  OPEN_PUMP: 0.35,
+  FINAL_PUMP: 0.3,
+  SHELL_TIME: 0.22,
+} as const;
+
 export const BLOOM = {
   CAP: 0.05,
   SPREAD_MULT: 0.8,
